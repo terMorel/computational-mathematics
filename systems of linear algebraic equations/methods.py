@@ -1,3 +1,5 @@
+from math import hypot
+
 import numpy as np
 
 
@@ -125,8 +127,8 @@ def conjugate_gradient(a, b, x):
 
 def bicgstab(a, b, x, target):
     r = b - a @ x
-    shadow = r.copy()
-    direction = r.copy()
+    shadow = r.copy()  # Фиксированный вектор r_* для скалярных произведений.
+    direction = r.copy()  # Направление p текущей итерации.
     rho = shadow @ r
 
     while True:
@@ -137,7 +139,7 @@ def bicgstab(a, b, x, target):
         alpha = rho / denominator
         s = r - alpha * product
         half_step = x + alpha * direction
-        if np.linalg.norm(s) <= target and np.linalg.norm(b - a @ half_step) <= target:
+        if hypot(*s) <= target and hypot(*(b - a @ half_step)) <= target:
             yield half_step
             return
 

@@ -19,6 +19,10 @@ from methods import (
 
 
 PROJECT = Path(__file__).resolve().parent
+REPORT_GRAPH = PROJECT / "convergence.png"
+DEFAULT_TOLERANCE = 1e-10
+DEFAULT_MAX_ITERATIONS = 2000
+DEFAULT_OMEGA = 1.05
 STYLES = (
     ("#0072b2", "o", "-"),
     ("#cc5500", "s", "--"),
@@ -74,7 +78,7 @@ def is_positive_definite(a):
 
 
 def residual_norm(a, b, x):
-    return float(np.linalg.norm(b - a @ x))
+    return math.hypot(*(b - a @ x))
 
 
 def run_direct(name, method, a, b):
@@ -120,10 +124,18 @@ def run_iterative(name, steps, a, b, x0, target, max_iterations):
 
 def solve(a, b, tolerance, max_iterations, omega):
     x0 = np.zeros_like(b)
-    scale = float(np.linalg.norm(b)) or 1.0
-    if not math.isfinite(scale):
+    zero_rhs = not np.any(b)
+    rhs_norm = math.hypot(*b)
+    if not math.isfinite(rhs_norm):
         raise ValueError("норма b превышает числовой диапазон")
-    target = tolerance * scale
+    scale = 1.0 if zero_rhs else rhs_norm
+
+    # Масштабируем правую часть степенью двойки. Это защищает скалярные
+    # произведения итерационных методов от потери порядка при малых b.
+    _, exponent = math.frexp(float(np.max(np.abs(b))))
+    scaled_b = np.ldexp(b, -exponent)
+    scaled_norm = 1.0 if zero_rhs else math.hypot(*scaled_b)
+    target = tolerance * scaled_norm
     spd = is_positive_definite(a)
 
     direct = [
@@ -131,20 +143,32 @@ def solve(a, b, tolerance, max_iterations, omega):
         run_direct("LU-разложение", lu_solve, a, b),
     ]
     iterative_methods = (
-        ("Якоби", jacobi(a, b, x0), False),
-        ("Гаусс–Зейдель", relaxation(a, b, x0, 1.0), False),
-        ("Верхняя релаксация", relaxation(a, b, x0, omega), False),
-        ("Градиентный спуск", steepest_descent(a, b, x0), True),
-        ("Минимальные невязки", minimum_residual(a, b, x0), False),
-        ("Сопряжённые градиенты", conjugate_gradient(a, b, x0), True),
-        ("BiCGStab", bicgstab(a, b, x0, target), False),
+        ("Якоби", jacobi(a, scaled_b, x0), False),
+        ("Гаусс–Зейдель", relaxation(a, scaled_b, x0, 1.0), False),
+        ("Верхняя релаксация", relaxation(a, scaled_b, x0, omega), False),
+        ("Градиентный спуск", steepest_descent(a, scaled_b, x0), True),
+        ("Минимальные невязки", minimum_residual(a, scaled_b, x0), False),
+        ("Сопряжённые градиенты", conjugate_gradient(a, scaled_b, x0), True),
+        ("BiCGStab", bicgstab(a, scaled_b, x0, target), False),
     )
     iterative = []
     for name, steps, requires_spd in iterative_methods:
         if requires_spd and not spd:
             iterative.append(Result(name, None, "требуется симметричная положительно определённая матрица"))
         else:
-            iterative.append(run_iterative(name, steps, a, b, x0, target, max_iterations))
+            result = run_iterative(name, steps, a, scaled_b, x0, target, max_iterations)
+            result.residuals = [norm / scaled_norm for norm in result.residuals]
+            with np.errstate(over="ignore", invalid="ignore"):
+                result.x = np.ldexp(result.x, exponent)
+                relative = residual_norm(a, b, result.x) / scale
+            if not math.isfinite(relative):
+                result.x = None
+                result.status = "сбой: результат выходит за числовой диапазон"
+            else:
+                result.residuals[-1] = relative
+                if result.status == "точность достигнута" and relative > tolerance:
+                    result.status = "округление решения нарушило критерий остановки"
+            iterative.append(result)
     return direct, iterative, scale
 
 
@@ -158,14 +182,13 @@ def print_results(a, b, direct, iterative, scale):
             absolute, relative = f"{norm:.4e}", f"{norm / scale:.4e}"
         print(f"{result.name:28} {iterations:>9} {absolute:>13} {relative:>17}  {result.status}")
 
-    solution = next((result for result in direct + iterative
-                     if result.status in ("решено", "точность достигнута")), None)
-    if solution is not None:
-        print(f"\nВектор решения ({solution.name})")
-        print(np.array2string(solution.x, precision=10, max_line_width=90, threshold=np.inf))
+    for result in direct + iterative:
+        if result.x is not None:
+            print(f"\n{result.name} — {result.status}")
+            print(np.array2string(result.x, floatmode="unique", max_line_width=90, threshold=np.inf))
 
 
-def plot_convergence(results, scale, tolerance, omega, zero_rhs, title, output, show):
+def plot_convergence(results, tolerance, omega, zero_rhs, title, output, show):
     import matplotlib
 
     if not show:
@@ -179,7 +202,7 @@ def plot_convergence(results, scale, tolerance, omega, zero_rhs, title, output, 
     for result, (color, marker, line) in zip(results, STYLES):
         if not result.residuals:
             continue
-        residuals = np.asarray(result.residuals) / scale
+        residuals = np.asarray(result.residuals)
         residuals[residuals <= 0] = np.nan
         label = result.name
         if label == "Верхняя релаксация":
@@ -210,18 +233,28 @@ def plot_convergence(results, scale, tolerance, omega, zero_rhs, title, output, 
 def main():
     parser = argparse.ArgumentParser(description="Сравнение методов решения квадратной СЛАУ")
     parser.add_argument("--system", type=Path, help="путь к JSON-файлу с матрицей A и вектором b")
-    parser.add_argument("--tol", type=float, default=1e-10, help="порог остановки")
-    parser.add_argument("--max-iterations", type=int, default=2000, help="предел числа итераций")
-    parser.add_argument("--omega", type=float, default=1.05, help="коэффициент верхней релаксации")
+    parser.add_argument("--tol", type=float, default=DEFAULT_TOLERANCE, help="порог остановки")
+    parser.add_argument("--max-iterations", type=int, default=DEFAULT_MAX_ITERATIONS, help="предел числа итераций")
+    parser.add_argument("--omega", type=float, default=DEFAULT_OMEGA, help="коэффициент верхней релаксации")
     parser.add_argument("--output", type=Path, help="путь к итоговому графику PNG")
     parser.add_argument("--show", action="store_true", help="открыть график в отдельном окне")
     args = parser.parse_args()
 
     if not 0 < args.tol < 1 or args.max_iterations < 1 or not 1 < args.omega < 2:
         parser.error("требуются 0 < tol < 1, max-iterations ≥ 1 и 1 < omega < 2")
-    output = args.output or PROJECT / ("convergence-custom.png" if args.system else "convergence.png")
+    report_run = args.system is None and (args.tol, args.max_iterations, args.omega) == (
+        DEFAULT_TOLERANCE, DEFAULT_MAX_ITERATIONS, DEFAULT_OMEGA
+    )
+    output = args.output
+    if output is None:
+        if args.system is not None:
+            output = PROJECT / "convergence-custom.png"
+        else:
+            output = REPORT_GRAPH if report_run else PROJECT / "convergence-experiment.png"
     if output.suffix.lower() != ".png":
         parser.error("для --output требуется расширение .png")
+    if not report_run and output.resolve() == REPORT_GRAPH.resolve():
+        parser.error("convergence.png зарезервирован для расчёта с параметрами из отчёта")
     try:
         a, b = load_system(args.system) if args.system else default_system()
         direct, iterative, scale = solve(a, b, args.tol, args.max_iterations, args.omega)
@@ -230,9 +263,9 @@ def main():
 
     title = f"Пользовательская система · n = {len(b)}" if args.system else "II.10.5 · вариант «м» · n = 20"
     print(title)
-    print(f"s = {scale:.6e}    ε = {args.tol:.0e}    ω = {args.omega:g}\n")
+    print(f"s = {scale:.6e}    ε = {args.tol:g}    ω = {args.omega:g}\n")
     print_results(a, b, direct, iterative, scale)
-    plot_convergence(iterative, scale, args.tol, args.omega, not np.any(b), title, output, args.show)
+    plot_convergence(iterative, args.tol, args.omega, not np.any(b), title, output, args.show)
 
 
 if __name__ == "__main__":
