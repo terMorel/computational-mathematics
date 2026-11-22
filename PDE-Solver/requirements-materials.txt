@@ -1,0 +1,6 @@
+# Для пересборки рисунков и презентации (приложению не нужны).
+-r requirements.txt
+kaleido>=1.0
+matplotlib>=3.8,<4
+python-pptx>=1.0
+Pillow>=10
