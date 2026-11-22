@@ -7,111 +7,198 @@
     "jacobi_radius": 0.9947160343998185,
     "optimal_omega": 1.8137882372741356
   },
+  "walls": {
+    "x0": 16.0,
+    "x1": 24.0,
+    "y0": 18.0,
+    "y1": 22.0,
+    "floor": 20.0
+  },
   "tolerance": 1e-08,
+  "timing": {
+    "repeats": 3,
+    "statistic": "медиана",
+    "python": "3.9.6",
+    "numpy": "2.0.2",
+    "machine": "arm64",
+    "system": "Darwin 25.6.0"
+  },
   "methods": [
     {
       "method": "Якоби",
       "omega": 1.0,
-      "iterations": 2496,
+      "iterations": 2396,
       "predicted": 3477,
-      "seconds": 0.4,
-      "max_error_vs_direct": 1.2251173171051732e-05
+      "seconds": 0.397,
+      "max_error_vs_exact": 2.080970005735594e-05
     },
     {
       "method": "Зейдель",
       "omega": 1.0,
-      "iterations": 1255,
+      "iterations": 1208,
       "predicted": 1738,
-      "seconds": 0.75,
-      "max_error_vs_direct": 1.2116676845863594e-05
+      "seconds": 0.685,
+      "max_error_vs_exact": 2.067879926315186e-05
     },
     {
       "method": "SOR",
       "omega": 1.8138,
-      "iterations": 112,
+      "iterations": 109,
       "predicted": 89,
-      "seconds": 0.08,
-      "max_error_vs_direct": 2.7304063721089733e-07
+      "seconds": 0.072,
+      "max_error_vs_exact": 6.237711467349527e-07
     }
   ],
+  "gains": {
+    "iterations_jacobi_to_sor": 21.98165137614679,
+    "iterations_seidel_to_sor": 11.082568807339449,
+    "iterations_jacobi_to_seidel": 1.9834437086092715,
+    "time_jacobi_to_sor": 5.513888888888889,
+    "time_seidel_to_sor": 9.513888888888891
+  },
   "omega_scan": [
     {
       "omega": 1.5,
-      "iterations": 416
+      "iterations": 403
     },
     {
       "omega": 1.7,
-      "iterations": 213
+      "iterations": 208
     },
     {
       "omega": 1.75,
-      "iterations": 167
+      "iterations": 163
     },
     {
       "omega": 1.85,
-      "iterations": 130
+      "iterations": 128
     },
     {
       "omega": 1.9,
-      "iterations": 186
+      "iterations": 183
     },
     {
       "omega": 1.95,
-      "iterations": 372
+      "iterations": 371
     }
   ],
   "checks": {
-    "walls_and_floor_max_dev": 0.0,
-    "ceiling_max_dev": 0.0,
-    "ceiling_edge_max_dev": 0.0,
-    "interior_min": 20.001359184615964,
-    "interior_max": 52.14465299545703,
-    "ceiling_max": 59.03814353284488
+    "faces_max_dev": {
+      "x = 0": 0.0,
+      "x = 4": 0.0,
+      "y = 0": 0.0,
+      "y = 3": 0.0,
+      "пол": 0.0,
+      "потолок": 0.0
+    },
+    "junctions_max_dev": 0.0,
+    "edge_xy00": 17.0,
+    "vertex_000": 18.0,
+    "final_residual": 9.753813543813319e-11,
+    "interior_min": 16.474269999801116,
+    "interior_max": 52.12541377961375,
+    "boundary_min": 16.0,
+    "boundary_max": 59.03814353284488
   },
-  "grid_convergence": [
+  "zero_amplitude": {
+    "ceiling_max_dev_from_20": 0.0,
+    "walls_max_dev": 0.0,
+    "interior_min": 16.320233795123706,
+    "interior_max": 23.679766124046843,
+    "interior_std": 1.499459787197698
+  },
+  "increment_convergence": [
     {
       "h": 0.2,
-      "grid": "20×15×13",
+      "grid": "20 × 15 × 13",
       "unknowns": 3192,
-      "iterations": 65,
-      "seconds": 0.01,
-      "max_error_vs_fourier": 0.1921733978043605
+      "max_error": 0.19217339812660583
     },
     {
       "h": 0.1,
-      "grid": "40×30×26",
+      "grid": "40 × 30 × 26",
       "unknowns": 28275,
-      "iterations": 130,
-      "seconds": 0.09,
-      "max_error_vs_fourier": 0.052315640713587186,
-      "max_diff_vs_coarser": 0.1432195363266331,
-      "order": 1.877094404389221
+      "max_error": 0.05231564068909478,
+      "max_diff_vs_coarser": 0.1432195366470168,
+      "order": 1.8770944074838203
     },
     {
       "h": 0.05,
-      "grid": "80×60×52",
+      "grid": "80 × 60 × 52",
       "unknowns": 237711,
-      "iterations": 256,
-      "seconds": 0.91,
-      "max_error_vs_fourier": 0.013256282053191626,
-      "max_diff_vs_coarser": 0.03913645039954616,
-      "order": 1.9805661267756127
+      "max_error": 0.013256282171120404,
+      "max_diff_vs_coarser": 0.03913645026400303,
+      "order": 1.9805661132658794
     }
   ],
+  "full_field_convergence": {
+    "margin_m": 0.5,
+    "steps": [
+      0.2,
+      0.1,
+      0.05
+    ],
+    "nodes": 1200,
+    "max_diffs": [
+      0.12392084276878279,
+      0.03148044232133884
+    ],
+    "order": 1.9768911439122077
+  },
   "depth_decay": {
-    "Пятно 1 (широкое)": {
-      "depth_50": 0.2999999999999998,
-      "depth_10": 1.2
+    "Пятно 1": {
+      "ceiling_amplitude": 31.738415127986293,
+      "half": {
+        "depth": 0.29129219992635913,
+        "between": [
+          0.25,
+          0.2999999999999998
+        ]
+      },
+      "tenth": {
+        "depth": 1.1639537734259708,
+        "between": [
+          1.15,
+          1.2
+        ]
+      }
     },
-    "Пятно 2 (узкое)": {
-      "depth_50": 0.25,
-      "depth_10": 1.05
+    "Пятно 2": {
+      "ceiling_amplitude": 10.763310049944575,
+      "half": {
+        "depth": 0.24895527624613095,
+        "between": [
+          0.19999999999999973,
+          0.25
+        ]
+      },
+      "tenth": {
+        "depth": 1.0185478719597718,
+        "between": [
+          1.0,
+          1.05
+        ]
+      }
     },
     "Волны m = n = 2": {
-      "depth_50": 0.1499999999999999,
-      "depth_10": 0.5
+      "ceiling_amplitude": 3.91214800560887,
+      "half": {
+        "depth": 0.13259737832658952,
+        "between": [
+          0.10000000000000009,
+          0.1499999999999999
+        ]
+      },
+      "tenth": {
+        "depth": 0.46220645239700303,
+        "between": [
+          0.4500000000000002,
+          0.5
+        ]
+      }
     },
     "wave_k": 5.235987755982989,
-    "wave_depth_10_theory": 0.4397613593276567
+    "wave_tenth_estimate": 0.4397613593276567,
+    "grid": "80 × 60 × 52"
   }
 }
