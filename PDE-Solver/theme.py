@@ -14,8 +14,12 @@ PAGE = "#f4f3ef"
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a")
 ACCENT = SERIES[0]
 
-# Семантическая «тепловая» шкала: от светлого (20 °C, фон) к тёмному (горячо).
-HEAT = [
+# Шкала температуры. Фон 20 °C — светлый нейтральный цвет; теплее — от жёлтого
+# к тёмно-бордовому, холоднее — к голубому. Положение 20 °C на шкале зависит от
+# её пределов, поэтому палитра собирается под каждый диапазон (heat_scale).
+NEUTRAL_T = 20.0
+COLD = "#a9c8ea"
+WARM = [
     [0.00, "#fbf7f0"],
     [0.10, "#fde9c4"],
     [0.24, "#fbcd82"],
@@ -26,12 +30,24 @@ HEAT = [
     [1.00, "#561a2c"],
 ]
 
-T_MIN = 20.0
+
+def color_range(t_max, walls):
+    """Общие пределы шкалы: от самой холодной грани до максимума потолка
+    (или самой тёплой стены), округлённого вверх до 5 °C."""
+    upper = max(float(t_max), walls.warmest)
+    return walls.coldest, max(25.0, 5.0 * -(-upper // 5.0))
 
 
-def color_max(t_max):
-    """Верхняя граница общей шкалы: максимум потолка, округлённый вверх до 5 °C."""
-    return max(25.0, 5.0 * -(-float(t_max) // 5.0))
+def heat_scale(scale):
+    """Палитра для пределов scale = (cmin, cmax) с нейтральным цветом при 20 °C."""
+    cmin, cmax = scale
+    f = min(max((NEUTRAL_T - cmin) / (cmax - cmin), 0.0), 1.0)
+    stops = [[0.0, COLD]] if f > 0 else []
+    stops += [[f + (1 - f) * p, color] for p, color in WARM]
+    return stops
+
+
+HEAT = WARM   # для мест, где 20 °C — нижний предел шкалы
 
 
 def base_layout(**extra):

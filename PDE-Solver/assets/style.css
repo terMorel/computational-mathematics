@@ -152,10 +152,15 @@ html, body {
   accent-color: var(--accent);
 }
 
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
 .reset {
-  width: 100%;
-  margin-top: 14px;
-  padding: 11px 14px;
+  padding: 8px 20px;
   font: 700 17px var(--font);
   color: white;
   background: var(--accent);
@@ -226,6 +231,24 @@ body.dragging-spot * { cursor: grabbing !important; }
 
 @media (max-width: 1500px) {
   html, body { font-size: 15px; }
-  .layout { grid-template-columns: 300px minmax(0, 1fr); }
-  .top h1 { font-size: 23px; }
+  .layout { grid-template-columns: 290px minmax(0, 1fr); gap: 10px; padding: 6px 12px 12px; }
+  .top { padding: 8px 14px 4px; }
+  .top h1 { font-size: 22px; }
+  .top p { font-size: 15px; }
+  .status { font-size: 13px; padding: 6px 10px; }
+}
+
+/* Невысокие экраны (1366 × 768): панель плотнее, чтобы влезла целиком. */
+@media (max-height: 820px) {
+  .panel { padding: 6px 14px 10px; }
+  .panel h2 { margin: 8px 0 4px; font-size: 13px; }
+  .control { margin: 2px 0 3px; }
+  .control-head { font-size: 14px; }
+  .pills { margin: 2px 0 4px; }
+  .pills label { padding: 5px 8px; font-size: 14px; }
+  /* Подписи делений прячем: текущее значение и так видно справа от названия. */
+  .dash-slider-mark { display: none; }
+  .dash-slider-root.has-marks { padding-bottom: 0 !important; margin-bottom: 0 !important; }
+  .dash-slider-container { padding-bottom: 0; min-height: 0; }
+  .views { gap: 10px; }
 }

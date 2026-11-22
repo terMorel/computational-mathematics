@@ -5,16 +5,16 @@
 
 import copy
 import json
+import math
 from collections import OrderedDict
 
 from dash import Dash, Input, Output, Patch, State, ctx, dcc, html, no_update
 
 from figures import (DEFAULT_PARAMS, DEFAULT_VIEW, HSLICE, ISO, PROFILE, VSLICE,
-                     ceiling_from_params, ceiling_grid, ceiling_map_figure, fmt, hslice_figure,
-                     hslice_trace, profile_figure, profile_trace, room_figure, vslice_figure,
+                     ceiling_from_params, ceiling_map_figure, fmt, hslice_figure, hslice_trace,
+                     profile_figure, profile_trace, room_figure, scale_for, vslice_figure,
                      vslice_trace)
-from heat_room import LX, LY, Grid, solve
-from theme import color_max
+from heat_room import LX, LY, WALLS, Grid, solve
 
 GRID = Grid.with_step(0.1)          # 40 × 30 × 26 шагов, 34 441 узел
 TOLERANCE = 1e-6                    # относительная невязка для интерактивного пересчёта
@@ -36,17 +36,31 @@ def sci(value):
     return f"{mantissa.replace('.', ',')}·10{str(int(power)).translate(str.maketrans('-0123456789', '⁻⁰¹²³⁴⁵⁶⁷⁸⁹'))}"
 
 
+def iso_range(T):
+    """Пределы ползунка изоповерхности: внутренние значения поля, шаг 0,5 °C."""
+    inner = T[1:-1, 1:-1, 1:-1]
+    lo = math.ceil((inner.min() + 0.25) * 2) / 2
+    hi = math.floor((inner.max() - 0.25) * 2) / 2
+    return lo, max(hi, lo + 0.5)
+
+
 def field_for(params):
     key = params_key(params)
     if key not in FIELDS:
+        # Старт с прошлого поля: после небольшого сдвига пятна итераций меньше.
         sol = solve(GRID, ceiling_from_params(params), method="sor", tol=TOLERANCE, start=_last["T"])
         _last["T"] = sol.T
-        _, _, Tc = ceiling_grid(params)
-        FIELDS[key] = {"sol": sol, "cmax": color_max(Tc.max())}
+        FIELDS[key] = {"sol": sol, "scale": list(scale_for(params)), "iso": iso_range(sol.T)}
         while len(FIELDS) > 24:
             FIELDS.popitem(last=False)
     FIELDS.move_to_end(key)
     return FIELDS[key]
+
+
+# В Dash 4 у ползунка есть поле ввода числа; на стенде оно не нужно.
+# В Dash 2–3 такого свойства нет, поэтому передаём его только при поддержке.
+SLIDER_EXTRA = ({"allow_direct_input": False}
+                if "allow_direct_input" in dcc.Slider().available_properties else {})
 
 
 def slider(id_, label, lo, hi, step, value, marks):
@@ -54,7 +68,7 @@ def slider(id_, label, lo, hi, step, value, marks):
         html.Div(className="control-head", children=[
             html.Span(label), html.Span(id=f"{id_}-out", className="control-value")]),
         dcc.Slider(id=id_, min=lo, max=hi, step=step, value=value, marks=marks,
-                   updatemode="mouseup", included=False, allow_direct_input=False),
+                   updatemode="mouseup", included=False, **SLIDER_EXTRA),
     ])
 
 
@@ -63,6 +77,7 @@ def marks(values, digits=1):
 
 
 s0 = DEFAULT_PARAMS["spots"][0]
+ISO_LO, ISO_HI = field_for(DEFAULT_PARAMS)["iso"]   # первое поле считаем сразу
 
 controls = html.Aside(className="panel", children=[
     html.H2("Нагрев потолка"),
@@ -88,9 +103,8 @@ controls = html.Aside(className="panel", children=[
     html.H2("Изоповерхность"),
     dcc.Checklist(id="iso-on", className="switch", value=[],
                   options=[{"label": "Показать в 3D", "value": "on"}]),
-    slider("iso-t", "Температура, °C", 21, 60, 0.5, DEFAULT_VIEW["iso_t"],
-           marks([21, 40, 60], 0)),
-    html.Button("Сбросить", id="reset", className="reset", n_clicks=0),
+    slider("iso-t", "Температура, °C", ISO_LO, ISO_HI, 0.5, DEFAULT_VIEW["iso_t"],
+           marks([ISO_LO, ISO_HI], 1)),
 ])
 
 graph_config = {"displaylogo": False, "responsive": True,
@@ -101,10 +115,17 @@ app.layout = html.Div(className="page", children=[
     html.Header(className="top", children=[
         html.Div([
             html.H1("Как рисунок температуры на потолке меняется с глубиной?"),
-            html.P("Стационарное поле ΔT = 0 в комнате 4 × 3 × 2,6 м · пол и стены 20 °C · "
-                   "семиточечная схема, верхняя релаксация (SOR)"),
+            html.P(" · ".join([
+                "ΔT\u00a0=\u00a00 в комнате 4\u00a0×\u00a03\u00a0×\u00a02,6\u00a0м",
+                "стены " + ", ".join(f"{name}:\u00a0{fmt(t, 0)}\u00a0°C" for name, t in [
+                    ("x\u00a0=\u00a00", WALLS.x0), ("x\u00a0=\u00a04", WALLS.x1),
+                    ("y\u00a0=\u00a00", WALLS.y0), ("y\u00a0=\u00a03", WALLS.y1)]),
+                f"пол\u00a0{fmt(WALLS.floor, 0)}\u00a0°C"])),
         ]),
-        html.Div(id="status", className="status"),
+        html.Div(className="top-right", children=[
+            html.Div(id="status", className="status"),
+            html.Button("Сбросить", id="reset", className="reset", n_clicks=0),
+        ]),
     ]),
     html.Div(className="layout", children=[
         controls,
@@ -158,7 +179,7 @@ def compute(params):
     sol = entry["sol"]
     status = [html.B("SOR"), f" · сетка {GRID.nx}×{GRID.ny}×{GRID.nz} · ω = {fmt(sol.omega, 3)} · ",
               f"{sol.iterations} итер. · {fmt(sol.seconds, 2)} с · невязка {sci(sol.residual)}"]
-    return {"key": params_key(params), "cmax": entry["cmax"]}, status
+    return {"key": params_key(params), "scale": entry["scale"], "iso": entry["iso"]}, status
 
 
 def current_field(field):
@@ -226,7 +247,7 @@ def room(field, revision, params, z, axis_name, pos, profile, iso_on, iso_t):
     if T is None:
         return no_update, no_update
     view = view_from(z, axis_name, pos, profile, iso_on, iso_t)
-    return room_figure(T, GRID, params, view, field["cmax"], revision), True
+    return room_figure(T, GRID, params, view, field["scale"], revision), True
 
 
 @app.callback(Output("room", "figure", allow_duplicate=True),
@@ -243,11 +264,11 @@ def move_slices_3d(z_drag, axis_name, pos_drag, z, pos, field, ready):
     patch = Patch()
     trigger = ctx.triggered_id
     if trigger == "slice-z":
-        new = hslice_trace(T, GRID, view["z"], field["cmax"])
+        new = hslice_trace(T, GRID, view["z"], field["scale"])
         patch["data"][HSLICE]["z"] = new.z
         patch["data"][HSLICE]["surfacecolor"] = new.surfacecolor
     else:
-        new = vslice_trace(T, GRID, view, field["cmax"])
+        new = vslice_trace(T, GRID, view, field["scale"])
         for key in ("x", "y", "z", "surfacecolor"):
             patch["data"][VSLICE][key] = new[key]
     return patch
@@ -291,9 +312,9 @@ def sections(field, z_drag, axis_name, pos_drag, profile, z, pos):
         return no_update, no_update, no_update
     view = {"z": z_drag if z_drag is not None else z, "axis": axis_name,
             "pos": pos_drag if pos_drag is not None else pos, "profile": profile}
-    cmax = field["cmax"]
-    return (hslice_figure(T, GRID, view, cmax), vslice_figure(T, GRID, view, cmax),
-            profile_figure(T, GRID, view, cmax))
+    scale = field["scale"]
+    return (hslice_figure(T, GRID, view, scale), vslice_figure(T, GRID, view, scale),
+            profile_figure(T, GRID, view, scale))
 
 
 # --- Подписи значений у ползунков ----------------------------------------
@@ -311,6 +332,15 @@ for _id, _d, _u in [("spot-x", 2, " м"), ("spot-y", 2, " м"), ("spot-sx", 2, "
     _label(_id, _d, _u)
 
 
+@app.callback(Output("iso-t", "min"), Output("iso-t", "max"), Output("iso-t", "marks"),
+              Output("iso-t", "value", allow_duplicate=True),
+              Input("field", "data"), State("iso-t", "value"), prevent_initial_call=True)
+def iso_slider(field, value):
+    """Диапазон изоповерхности — от минимума до максимума текущего поля внутри комнаты."""
+    lo, hi = field["iso"]
+    return lo, hi, marks([lo, hi], 1), min(max(value, lo), hi)
+
+
 @app.callback(Output("vslice-pos", "max"), Output("vslice-pos", "marks"), Output("vslice-pos", "value"),
               Input("vslice-axis", "value"), State("vslice-pos", "value"), prevent_initial_call=True)
 def vslice_range(axis_name, pos):
@@ -326,7 +356,7 @@ def vslice_range(axis_name, pos):
               Output("slice-z", "value"), Output("vslice-axis", "value"),
               Output("vslice-pos", "value", allow_duplicate=True),
               Output("profile-point", "data", allow_duplicate=True),
-              Output("iso-on", "value"), Output("iso-t", "value"),
+              Output("iso-on", "value"), Output("iso-t", "value", allow_duplicate=True),
               Output("camera-rev", "data"),
               Input("reset", "n_clicks"), State("camera-rev", "data"), prevent_initial_call=True)
 def reset(_, revision):
@@ -337,5 +367,4 @@ def reset(_, revision):
 
 
 if __name__ == "__main__":
-    field_for(DEFAULT_PARAMS)  # первое поле считаем до открытия страницы
     app.run(host="127.0.0.1", port=8050, debug=False)
