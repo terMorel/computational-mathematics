@@ -28,10 +28,10 @@ from heat_room import (DEFAULT_CEILING, LX, LY, LZ, T_BACKGROUND, WALLS, Grid,
 
 HERE = Path(__file__).parent
 FIGURES = HERE / "figures"
-TOL = 1e-8          # порог относительной невязки при сравнении методов
-TOL_FINE = 1e-10    # порог для проверок сеточной сходимости и затухания
-REPEATS = 3         # время — медиана трёх запусков
-SLICE_HEIGHTS = [2.5, 2.2, 1.6, 1.3]   # срезы для отчёта и слайдов: глубина 0,1; 0,4; 1,0; 1,3 м
+TOL = 1e-8
+TOL_FINE = 1e-10
+REPEATS = 3
+SLICE_HEIGHTS = [2.5, 2.2, 1.6, 1.3]
 
 
 def environment():
@@ -293,7 +293,7 @@ def save(fig, name, width, height):
 
 
 def main():
-    env = environment()   # та же среда, в которой ниже измеряется время
+    env = environment()
     print("Среда замера времени:", env)
     grid = Grid.with_step(0.1)
     print(f"Сетка {grid.nx}×{grid.ny}×{grid.nz}, неизвестных {grid.unknowns}, "

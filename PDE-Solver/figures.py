@@ -16,7 +16,6 @@ DEFAULT_PARAMS = {
     "amp": 60.0,
     "m": 2,
     "n": 2,
-    # Центры и ширины пятен в метрах: (x, y, σx·Lx, σy·Ly).
     "spots": [[0.33 * LX, 0.55 * LY, 0.16 * LX, 0.22 * LY],
               [0.72 * LX, 0.35 * LY, 0.13 * LX, 0.17 * LY]],
 }
@@ -27,7 +26,6 @@ DEFAULT_VIEW = {"z": 2.3, "axis": "y", "pos": 1.65, "profile": [1.32, 1.65],
 DEFAULT_CAMERA = dict(eye=dict(x=1.08, y=-1.5, z=0.78), center=dict(x=0.0, y=0.0, z=-0.27),
                       up=dict(x=0, y=0, z=1))
 
-# Порядок следов 3D-сцены: по этим номерам стенд обновляет срезы частично.
 FLOOR, WALL_X0, WALL_YL, CEILING, HSLICE, VSLICE, ISO, PROFILE, EDGES, VERTICES = range(10)
 
 HOVER_XY = "x = %{x:.2f} м<br>y = %{y:.2f} м<br>T = %{z:.1f} °C<extra></extra>"
@@ -137,7 +135,7 @@ def ceiling_map_figure(params, selected, view, scale=None, title=None):
                                colorbar=colorbar(len=0.9), hovertemplate=HOVER_XY, zsmooth="best"))
     fig.add_trace(_slice_line_xy(view))
     fig.add_trace(_profile_mark(*view["profile"]))
-    for j in [1 - selected, selected]:   # выбранное пятно рисуем поверх
+    for j in [1 - selected, selected]:
         sx, sy = params["spots"][j][:2]
         fig.add_trace(_spot_marker(sx, sy, str(j + 1), j == selected))
     fig.update_layout(**base_layout(
@@ -219,7 +217,7 @@ def junction_traces(T, grid, ceiling, walls=WALLS):
         return [float(axes[a][node[a]]) for a in range(3)]
 
     entries = junctions(grid, ceiling, walls)
-    corners = {}   # узел вершины → подсказка
+    corners = {}
     for entry in entries:
         if entry["kind"] == "вершина":
             node = tuple(int(ix[0]) for ix in entry["index"])
@@ -231,14 +229,13 @@ def junction_traces(T, grid, ceiling, walls=WALLS):
         nodes = [tuple(int(v) for v in node) for node in zip(*entry["index"])]
         vary = next(a for a in range(3) if nodes[0][a] != nodes[-1][a])
         step = [int(a == vary) for a in range(3)]
-        first = tuple(v - d for v, d in zip(nodes[0], step))    # концы ребра — вершины:
-        last = tuple(v + d for v, d in zip(nodes[-1], step))    # линия доходит до них
+        first = tuple(v - d for v, d in zip(nodes[0], step))
+        last = tuple(v + d for v, d in zip(nodes[-1], step))
         for node in [first] + nodes + [last]:
             xyz = point(node)
             xs.append(xyz[0]); ys.append(xyz[1]); zs.append(xyz[2])
             text.append(corners[node] if node in corners else _junction_hover(entry, xyz, float(T[node])))
         xs.append(None); ys.append(None); zs.append(None); text.append("")
-    # Узлы ребра — мелкие точки: за них легче зацепиться мышью, чем за тонкую линию.
     line = go.Scatter3d(x=xs, y=ys, z=zs, text=text, mode="lines+markers", line=dict(color=MUTED, width=5),
                         marker=dict(size=3.5, color=MUTED), hovertemplate="%{text}<extra></extra>",
                         showlegend=False)
@@ -269,7 +266,6 @@ def _axis3d(title, upper):
 
 
 def room_figure(T, grid, params, view, scale, revision=0, title=None, walls=WALLS):
-    # uirevision должна быть «истинной», иначе Plotly не сохраняет повёрнутую камеру.
     revision = f"camera-{revision}"
     xc, yc, Tc = ceiling_grid(params, 121, 91)
     Xc, Yc = np.meshgrid(xc, yc, indexing="ij")
@@ -277,7 +273,6 @@ def room_figure(T, grid, params, view, scale, revision=0, title=None, walls=WALL
     traces[FLOOR] = _face("z", 0.0, walls.floor, scale)
     traces[WALL_X0] = _face("x", 0.0, walls.x0, scale)
     traces[WALL_YL] = _face("y", LY, walls.y1, scale)
-    # Потолок полупрозрачный: сквозь него видны срезы.
     traces[CEILING] = _plane(Xc, Yc, np.full(Xc.shape, LZ), Tc.T, scale, showscale=True, opacity=0.62,
                              colorbar=colorbar(len=0.75, x=0.98, y=0.5))
     traces[HSLICE] = hslice_trace(T, grid, view["z"], scale)
@@ -337,7 +332,7 @@ def vslice_figure(T, grid, view, scale, show_scale=True):
                                colorbar=colorbar(len=0.9)))
     fig.add_trace(go.Scatter(x=[0, width], y=[view["z"]] * 2, mode="lines",
                              line=dict(color=INK, width=2), hoverinfo="skip", showlegend=False))
-    if near:   # линия профиля лежит в плоскости среза
+    if near:
         fig.add_trace(go.Scatter(x=[p, p], y=[0, LZ], mode="lines", line=dict(color=ACCENT, width=3),
                                  hoverinfo="skip", showlegend=False))
     _section_layout(fig, title, name, "z, м", width, LZ)
@@ -417,7 +412,7 @@ def convergence_figure(solutions, tol):
             x=np.arange(len(sol.residuals)), y=sol.residuals, mode="lines", name=label,
             line=dict(color=color, width=2.5),
             hovertemplate=f"{label}<br>итерация %{{x}}<br>невязка %{{y:.2e}}<extra></extra>"))
-        left = sol.method == "seidel"   # подпись Зейделя слева от конца линии
+        left = sol.method == "seidel"
         fig.add_annotation(x=np.log10(max(sol.iterations, 1)), y=np.log10(sol.residuals[-1]),
                            text=f"<b>{label.split(',')[0]}</b>: {sol.iterations}", showarrow=False,
                            xanchor="right" if left else "left", yanchor="bottom",

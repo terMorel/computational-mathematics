@@ -16,9 +16,9 @@ from figures import (DEFAULT_PARAMS, DEFAULT_VIEW, HSLICE, ISO, PROFILE, VSLICE,
                      vslice_trace)
 from heat_room import LX, LY, WALLS, Grid, solve
 
-GRID = Grid.with_step(0.1)          # 40 × 30 × 26 шагов: 41 × 31 × 27 = 34 317 узлов, 28 275 внутренних
-TOLERANCE = 1e-6                    # относительная невязка для интерактивного пересчёта
-FIELDS = OrderedDict()              # кэш рассчитанных полей: ключ параметров → решение
+GRID = Grid.with_step(0.1)
+TOLERANCE = 1e-6
+FIELDS = OrderedDict()
 _last = {"T": None}
 
 SLIDERS = ["spot-x", "spot-y", "spot-sx", "spot-sy", "amp", "wave-m", "wave-n"]
@@ -47,7 +47,6 @@ def iso_range(T):
 def field_for(params):
     key = params_key(params)
     if key not in FIELDS:
-        # Старт с прошлого поля: после небольшого сдвига пятна итераций меньше.
         sol = solve(GRID, ceiling_from_params(params), method="sor", tol=TOLERANCE, start=_last["T"])
         _last["T"] = sol.T
         FIELDS[key] = {"sol": sol, "scale": list(scale_for(params)), "iso": iso_range(sol.T)}
@@ -77,7 +76,7 @@ def marks(values, digits=1):
 
 
 s0 = DEFAULT_PARAMS["spots"][0]
-ISO_LO, ISO_HI = field_for(DEFAULT_PARAMS)["iso"]   # первое поле считаем сразу
+ISO_LO, ISO_HI = field_for(DEFAULT_PARAMS)["iso"]
 
 controls = html.Aside(className="panel", children=[
     html.H2("Нагрев потолка"),
@@ -149,7 +148,7 @@ app.layout = html.Div(className="page", children=[
     dcc.Store(id="profile-point", data=list(DEFAULT_VIEW["profile"])),
     dcc.Store(id="joystick-live", data=None),
     dcc.Store(id="camera-rev", data=0),
-    dcc.Store(id="room-ready", data=False),   # 3D-фигура построена — можно частично обновлять
+    dcc.Store(id="room-ready", data=False),
 ])
 
 
@@ -158,7 +157,7 @@ app.layout = html.Div(className="page", children=[
 @app.callback(Output("params", "data"),
               [Input(s, "value") for s in SLIDERS],
               State("spot-select", "value"), State("params", "data"),
-              prevent_initial_call=True)   # иначе no_update при загрузке отменит первый расчёт
+              prevent_initial_call=True)
 def commit(x, y, sx, sy, amp, m, n, selected, params):
     new = copy.deepcopy(params)
     new["spots"][selected] = [x, y, sx, sy]

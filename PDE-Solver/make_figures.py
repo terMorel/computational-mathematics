@@ -33,7 +33,7 @@ DEMO_VIEW = {**DEFAULT_VIEW, "z": 1.6, "profile": [2.2, 2.0]}
 
 def save(fig, name, width, height, trim=False):
     fig.write_image(OUT / name, width=width, height=height, scale=2)
-    if trim:   # у 3D-сцен Plotly оставляет широкие поля — обрезаем по фону
+    if trim:
         from PIL import Image, ImageChops
         im = Image.open(OUT / name).convert("RGB")
         box = ImageChops.difference(im, Image.new("RGB", im.size, SURFACE)).getbbox()
@@ -61,7 +61,6 @@ def scheme_figure(params, scale, short=False):
     fig.add_trace(go.Surface(x=a * LX, y=b * LY, z=flat(0.0), surfacecolor=flat(WALLS.floor), **common))
     fig.add_trace(go.Surface(x=flat(0.0), y=a * LY, z=b * LZ, surfacecolor=flat(WALLS.x0), **common))
     fig.add_trace(go.Surface(x=a * LX, y=flat(LY), z=b * LZ, surfacecolor=flat(WALLS.y1), **common))
-    # Передние стены полупрозрачные, чтобы было видно внутренность.
     fig.add_trace(go.Surface(x=flat(LX), y=a * LY, z=b * LZ, surfacecolor=flat(WALLS.x1),
                              opacity=0.35, **common))
     fig.add_trace(go.Surface(x=a * LX, y=flat(0.0), z=b * LZ, surfacecolor=flat(WALLS.y0),
@@ -74,14 +73,12 @@ def scheme_figure(params, scale, short=False):
         xs += [p[0], q[0], None]; ys += [p[1], q[1], None]; zs += [p[2], q[2], None]
     fig.add_trace(go.Scatter3d(x=xs, y=ys, z=zs, mode="lines", line=dict(color=INK_2, width=3),
                                hoverinfo="skip"))
-    # Один пример стыка: ребро стены x = 0 и потолка, точка (0; 1,5; 2,6) м.
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, LY], z=[LZ, LZ], mode="lines",
                                line=dict(color="#2a78d6", width=12), hoverinfo="skip"))
     fig.add_trace(go.Scatter3d(x=[0], y=[LY / 2], z=[LZ], mode="markers",
                                marker=dict(size=8, color="#2a78d6"), hoverinfo="skip"))
 
     def note(x0, y0, z0, text, color=INK, **kw):
-        # Подписи — аннотации сцены (SVG поверх WebGL), они не портят прозрачность.
         return dict(x=x0, y=y0, z=z0, text=text, showarrow=False, font=dict(size=19, color=color),
                     bgcolor="rgba(252,252,251,0.88)", borderpad=3, **kw)
 
@@ -115,7 +112,7 @@ def main():
     flat = solve(GRID, ceiling_from_params({**DEFAULT_PARAMS, "amp": 0.0}), tol=1e-10)
     demo = solve(GRID, ceiling_from_params(DEMO_PARAMS), tol=1e-8, start=base.T)
     scale = scale_for(DEFAULT_PARAMS)
-    both = (scale[0], max(scale[1], scale_for(DEMO_PARAMS)[1]))   # общая шкала «до/после»
+    both = (scale[0], max(scale[1], scale_for(DEMO_PARAMS)[1]))
     print(f"  шкала: {scale}, для пары «до/после»: {both}")
     for name, sol, view in [("до", base, DEFAULT_VIEW), ("после", demo, DEMO_VIEW)]:
         x, y = view["profile"]
@@ -127,7 +124,6 @@ def main():
     save(vslice_figure(base.T, GRID, DEFAULT_VIEW, scale), "vslice.png", 1000, 600)
     save(profile_compare_figure(base.T, flat.T, GRID, DEFAULT_VIEW["profile"], DEFAULT_VIEW["z"], scale,
                                 DEFAULT_PARAMS["amp"]), "profile.png", 760, 700)
-    # Сценарий показа стенда: «до» и «после» на одной шкале.
     save(ceiling_map_figure(DEFAULT_PARAMS, 0, DEFAULT_VIEW, both,
                             title="До: A = 60 °C, пятно 1 в (1,32; 1,65) м"), "demo-before-ceiling.png", 900, 640)
     save(ceiling_map_figure(DEMO_PARAMS, 0, DEMO_VIEW, both,
