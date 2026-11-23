@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from heat_room import LX, LY, LZ, WALLS, Ceiling, Spot, ceiling_temperature
+from heat_room import LX, LY, LZ, WALLS, Ceiling, Spot, ceiling_temperature, junctions
 from theme import (ACCENT, AXIS, GRID, INK, INK_2, MUTED, SERIES, axis, base_layout,
                    colorbar, color_range, heat_scale)
 
@@ -28,7 +28,7 @@ DEFAULT_CAMERA = dict(eye=dict(x=1.08, y=-1.5, z=0.78), center=dict(x=0.0, y=0.0
                       up=dict(x=0, y=0, z=1))
 
 # Порядок следов 3D-сцены: по этим номерам стенд обновляет срезы частично.
-FLOOR, WALL_X0, WALL_YL, CEILING, HSLICE, VSLICE, ISO, PROFILE, EDGES = range(9)
+FLOOR, WALL_X0, WALL_YL, CEILING, HSLICE, VSLICE, ISO, PROFILE, EDGES, VERTICES = range(10)
 
 HOVER_XY = "x = %{x:.2f} м<br>y = %{y:.2f} м<br>T = %{z:.1f} °C<extra></extra>"
 
@@ -197,19 +197,57 @@ def profile_trace(x, y):
                         showlegend=False)
 
 
-def _edges():
-    xs, ys, zs = [], [], []
-    for a in (0, LX):
-        for b in (0, LY):
-            xs += [a, a, None]; ys += [b, b, None]; zs += [0, LZ, None]
-    for a in (0, LX):
-        for c in (0, LZ):
-            xs += [a, a, None]; ys += [0, LY, None]; zs += [c, c, None]
-    for b in (0, LY):
-        for c in (0, LZ):
-            xs += [0, LX, None]; ys += [b, b, None]; zs += [c, c, None]
-    return go.Scatter3d(x=xs, y=ys, z=zs, mode="lines", line=dict(color=MUTED, width=3),
-                        hoverinfo="skip", showlegend=False)
+def _junction_hover(entry, point, value):
+    """Подсказка стыка: пределы примыкающих граней и значение в узле сетки."""
+    x, y, z = (fmt(v, 2) for v in point)
+    if entry["kind"] == "ребро":
+        head = f"<b>Ребро {', '.join(entry['coords'])} м</b><br>точка ({x}; {y}; {z}) м"
+    else:
+        head = f"<b>Вершина ({x}; {y}; {z}) м</b>"
+    rows = [f"{name}: {'предел формулы у края' if name.startswith('потолок') else 'предел'} "
+            f"{fmt(limit, 1)} °C" for name, limit in zip(entry["faces"], entry["limits"])]
+    terms = " + ".join(fmt(limit, 0) for limit in entry["limits"])
+    rows.append(f"узел сетки: ({terms}) / {len(entry['limits'])} = {fmt(value, 1)} °C")
+    return "<br>".join([head] + rows)
+
+
+def junction_traces(T, grid, ceiling, walls=WALLS):
+    """Рёбра и вершины комнаты с подсказками; значения узлов — из поля решателя."""
+    axes = grid.axes
+
+    def point(node):
+        return [float(axes[a][node[a]]) for a in range(3)]
+
+    entries = junctions(grid, ceiling, walls)
+    corners = {}   # узел вершины → подсказка
+    for entry in entries:
+        if entry["kind"] == "вершина":
+            node = tuple(int(ix[0]) for ix in entry["index"])
+            corners[node] = _junction_hover(entry, point(node), float(T[node]))
+    xs, ys, zs, text = [], [], [], []
+    for entry in entries:
+        if entry["kind"] != "ребро":
+            continue
+        nodes = [tuple(int(v) for v in node) for node in zip(*entry["index"])]
+        vary = next(a for a in range(3) if nodes[0][a] != nodes[-1][a])
+        step = [int(a == vary) for a in range(3)]
+        first = tuple(v - d for v, d in zip(nodes[0], step))    # концы ребра — вершины:
+        last = tuple(v + d for v, d in zip(nodes[-1], step))    # линия доходит до них
+        for node in [first] + nodes + [last]:
+            xyz = point(node)
+            xs.append(xyz[0]); ys.append(xyz[1]); zs.append(xyz[2])
+            text.append(corners[node] if node in corners else _junction_hover(entry, xyz, float(T[node])))
+        xs.append(None); ys.append(None); zs.append(None); text.append("")
+    # Узлы ребра — мелкие точки: за них легче зацепиться мышью, чем за тонкую линию.
+    line = go.Scatter3d(x=xs, y=ys, z=zs, text=text, mode="lines+markers", line=dict(color=MUTED, width=5),
+                        marker=dict(size=3.5, color=MUTED), hovertemplate="%{text}<extra></extra>",
+                        showlegend=False)
+    nodes = list(corners)
+    dots = go.Scatter3d(x=[point(n)[0] for n in nodes], y=[point(n)[1] for n in nodes],
+                        z=[point(n)[2] for n in nodes], text=[corners[n] for n in nodes],
+                        mode="markers", marker=dict(size=8, color=INK_2, line=dict(color="white", width=1)),
+                        hovertemplate="%{text}<extra></extra>", showlegend=False)
+    return line, dots
 
 
 def iso_trace(T, grid, view, scale):
@@ -235,7 +273,7 @@ def room_figure(T, grid, params, view, scale, revision=0, title=None, walls=WALL
     revision = f"camera-{revision}"
     xc, yc, Tc = ceiling_grid(params, 121, 91)
     Xc, Yc = np.meshgrid(xc, yc, indexing="ij")
-    traces = [None] * 9
+    traces = [None] * 10
     traces[FLOOR] = _face("z", 0.0, walls.floor, scale)
     traces[WALL_X0] = _face("x", 0.0, walls.x0, scale)
     traces[WALL_YL] = _face("y", LY, walls.y1, scale)
@@ -246,7 +284,7 @@ def room_figure(T, grid, params, view, scale, revision=0, title=None, walls=WALL
     traces[VSLICE] = vslice_trace(T, grid, view, scale)
     traces[ISO] = iso_trace(T, grid, view, scale)
     traces[PROFILE] = profile_trace(*view["profile"])
-    traces[EDGES] = _edges()
+    traces[EDGES], traces[VERTICES] = junction_traces(T, grid, ceiling_from_params(params), walls)
     fig = go.Figure(traces)
     fig.update_layout(**base_layout(
         title=_title(title or "Комната: потолок, срезы, профиль"),
@@ -277,7 +315,7 @@ def hslice_figure(T, grid, view, scale, show_scale=True, title=None):
                                showscale=show_scale, colorbar=colorbar(len=0.9)))
     fig.add_trace(_slice_line_xy(view))
     fig.add_trace(_profile_mark(*view["profile"]))
-    _section_layout(fig, title or f"Срез z = {fmt(view['z'], 1)} м (глубина {fmt(LZ - view['z'], 1)} м)",
+    _section_layout(fig, title or f"Срез z = {fmt(view['z'])} м (глубина {fmt(LZ - view['z'])} м)",
                     "x, м", "y, м", LX, LY)
     return fig
 
@@ -334,6 +372,38 @@ def profile_figure(T, grid, view, scale, title=None):
     return fig
 
 
+def profile_compare_figure(T, T0, grid, point, height, scale, amplitude):
+    """Профиль T(z) под точкой при нагреве и при A = 0; значение на высоте height —
+    точкой прямо на кривой с подписью."""
+    _, _, z = grid.axes
+    x, y = point
+    heated, flat = column(T, grid, x, y), column(T0, grid, x, y)
+    t = value_at(T, grid, x, y, height)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=flat, y=z, mode="lines", name="A = 0: только стены и пол",
+                             line=dict(color=MUTED, width=2.5, dash="dash"),
+                             hovertemplate="A = 0<br>z = %{y:.2f} м<br>T = %{x:.1f} °C<extra></extra>"))
+    fig.add_trace(go.Scatter(x=heated, y=z, mode="lines", name=f"A = {fmt(amplitude, 0)} °C",
+                             line=dict(color=ACCENT, width=3.5),
+                             hovertemplate="z = %{y:.2f} м<br>T = %{x:.1f} °C<extra></extra>"))
+    fig.add_trace(go.Scatter(x=[t, heated[-1]], y=[height, LZ], mode="markers",
+                             marker=dict(size=13, color=ACCENT, line=dict(color="white", width=2)),
+                             hoverinfo="skip", showlegend=False))
+    fig.add_annotation(x=t, y=height, text=f"z = {fmt(height)} м: <b>{fmt(t, 1)} °C</b>", showarrow=True,
+                       arrowhead=0, arrowwidth=1.5, arrowcolor=INK_2, ax=0, ay=80, yanchor="top",
+                       font=dict(size=16, color=INK), bgcolor="rgba(252,252,251,0.9)")
+    fig.add_annotation(x=heated[-1], y=LZ, text=f"потолок {fmt(heated[-1], 1)} °C", showarrow=False,
+                       xanchor="right", yanchor="bottom", xshift=-6, yshift=4, font=dict(size=15, color=INK_2))
+    fig.update_layout(**base_layout(
+        title=_title(f"T(z) под точкой ({fmt(x)}; {fmt(y)}) м"),
+        legend=dict(x=0.98, y=0.02, xanchor="right", yanchor="bottom", font=dict(size=15),
+                    bgcolor="rgba(252,252,251,0.9)"),
+        margin=dict(l=64, r=20, t=48, b=56), dragmode=False))
+    fig.update_xaxes(**axis("T, °C", range=[scale[0] - 0.5, scale[1]]))
+    fig.update_yaxes(**axis("высота z, м", range=[0, LZ + 0.2], dtick=0.5))
+    return fig
+
+
 # --- Рисунки исследования -----------------------------------------------------
 
 NAMES = {"jacobi": "Якоби", "seidel": "Зейдель", "sor": "SOR"}
@@ -380,13 +450,14 @@ def depth_figure(depths, curves, summary):
         fig.add_trace(go.Scatter(x=[d10], y=[0.1], mode="markers",
                                  marker=dict(size=11, color=color, line=dict(color="white", width=2)),
                                  hoverinfo="skip", showlegend=False))
-        # Близкие точки подписываем в разные стороны, чтобы подписи не слипались.
+        # Подписи выносим со стрелкой в пустые места: самую мелкую деталь — вниз
+        # и влево (там кривых нет), остальные — вверх и вправо, одну над другой.
         k = crossings.index(d10)
-        left = k + 1 < len(crossings) and crossings[k + 1] - d10 < 0.3
-        right = k > 0 and d10 - crossings[k - 1] < 0.3
-        fig.add_annotation(x=d10, y=0.1, text=f"{fmt(d10, 2)} м", showarrow=False, yshift=18,
-                           xanchor="right" if left else ("left" if right else "center"),
-                           xshift=-4 if left else (4 if right else 0), font=dict(size=15, color=INK))
+        ax, ay = (-40, 36) if k == 0 else (55, -30 - 45 * (len(crossings) - 1 - k))
+        fig.add_annotation(x=d10, y=0.1, text=f"{fmt(d10, 2)} м", showarrow=True, arrowhead=0,
+                           arrowwidth=1.5, arrowcolor=color, ax=ax, ay=ay,
+                           xanchor="right" if ax < 0 else "left", font=dict(size=15, color=INK),
+                           bgcolor="rgba(252,252,251,0.9)")
     k = summary["wave_k"]
     lz = max(depths)
     estimate = np.sinh(k * (lz - depths)) / np.sinh(k * lz)
@@ -397,13 +468,13 @@ def depth_figure(depths, curves, summary):
     fig.add_annotation(x=lz, y=0.1, text="10 %", showarrow=False, xanchor="right", yanchor="bottom",
                        font=dict(size=15, color=INK_2))
     fig.update_layout(**base_layout(
-        title=_title(f"Доля амплитуды слагаемого на срезе · сетка {summary['grid']} · "
-                     "точки — интерполяция между слоями", 17),
+        title=_title(f"Доля амплитуды компоненты на срезе · сетка {summary['grid']} · "
+                     "нормировка на её максимум на потолке", 17),
         legend=dict(x=0.98, y=0.97, xanchor="right", yanchor="top", font=dict(size=15),
                     bgcolor="rgba(252,252,251,0.9)"),
         margin=dict(l=80, r=30, t=60, b=60)))
     fig.update_xaxes(**axis("глубина d от потолка, м", range=[0, lz], dtick=0.25))
-    fig.update_yaxes(**axis("доля амплитуды на потолке", range=[0, 1.02], tickformat=".0%"))
+    fig.update_yaxes(**axis("доля от своего максимума на потолке", range=[0, 1.02], tickformat=".0%"))
     return fig
 
 

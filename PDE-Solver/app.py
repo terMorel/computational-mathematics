@@ -1,4 +1,4 @@
-"""Демонстрационный стенд: стационарное поле температуры в комнате.
+"""Стенд: стационарное распределение температуры в комнате.
 
 Запуск:  python app.py  →  http://127.0.0.1:8050
 """
@@ -16,7 +16,7 @@ from figures import (DEFAULT_PARAMS, DEFAULT_VIEW, HSLICE, ISO, PROFILE, VSLICE,
                      vslice_trace)
 from heat_room import LX, LY, WALLS, Grid, solve
 
-GRID = Grid.with_step(0.1)          # 40 × 30 × 26 шагов, 34 441 узел
+GRID = Grid.with_step(0.1)          # 40 × 30 × 26 шагов: 41 × 31 × 27 = 34 317 узлов, 28 275 внутренних
 TOLERANCE = 1e-6                    # относительная невязка для интерактивного пересчёта
 FIELDS = OrderedDict()              # кэш рассчитанных полей: ключ параметров → решение
 _last = {"T": None}
@@ -110,11 +110,11 @@ controls = html.Aside(className="panel", children=[
 graph_config = {"displaylogo": False, "responsive": True,
                 "modeBarButtonsToRemove": ["select2d", "lasso2d", "toImage"]}
 
-app = Dash(__name__, title="Тепло от потолка — PDE-Solver", update_title=None)
+app = Dash(__name__, title="Стационарное распределение температуры в комнате", update_title=None)
 app.layout = html.Div(className="page", children=[
     html.Header(className="top", children=[
         html.Div([
-            html.H1("Как рисунок температуры на потолке меняется с глубиной?"),
+            html.H1("Стационарное распределение температуры в комнате"),
             html.P(" · ".join([
                 "ΔT\u00a0=\u00a00 в комнате 4\u00a0×\u00a03\u00a0×\u00a02,6\u00a0м",
                 "стены " + ", ".join(f"{name}:\u00a0{fmt(t, 0)}\u00a0°C" for name, t in [

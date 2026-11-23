@@ -9,7 +9,7 @@
 """
 
 from dataclasses import dataclass, field, replace
-from math import cos, pi, sqrt
+from math import cos, pi, sin, sqrt
 import time
 
 import numpy as np
@@ -124,6 +124,14 @@ class Grid:
         hx, hy, hz = self.steps
         return 1 / hx**2, 1 / hy**2, 1 / hz**2
 
+    def spectrum_bounds(self):
+        """Границы спектра оператора A = −Λ на сетке с нулевыми граничными условиями:
+        λ_pqr = Σ (4/h²) sin²(pπ/2M) по осям; l = λ_111, L = λ_{M−1,M−1,M−1}."""
+        parts = [(4 / h**2, pi / (2 * n)) for h, n in zip(self.steps, (self.nx, self.ny, self.nz))]
+        low = sum(c * sin(a) ** 2 for c, a in parts)
+        high = sum(c * cos(a) ** 2 for c, a in parts)
+        return low, high
+
     def jacobi_radius(self):
         """Спектральный радиус матрицы перехода метода Якоби."""
         cx, cy, cz = self.coefficients
@@ -134,6 +142,28 @@ class Grid:
         """Оптимальный параметр SOR (теорема Янга): ω = 2 / (1 + √(1 − ρ²))."""
         rho = self.jacobi_radius()
         return 2 / (1 + sqrt(1 - rho**2))
+
+
+# Грани комнаты: подпись и координата, задающая грань.
+FACES = (("стена x = 0", "x = 0"), ("стена x = 4 м", "x = 4"), ("стена y = 0", "y = 0"),
+         ("стена y = 3 м", "y = 3"), ("пол z = 0", "z = 0"), ("потолок z = 2,6 м", "z = 2,6"))
+
+
+def _faces(grid, ceiling, walls):
+    """Для каждой грани: маска узлов, значение на открытой грани, предел на её краю."""
+    nx, ny, nz = grid.shape
+    x, y, _ = grid.axes
+    i = np.arange(nx)[:, None, None]
+    j = np.arange(ny)[None, :, None]
+    k = np.arange(nz)[None, None, :]
+    return [
+        (i == 0, walls.x0, walls.x0),
+        (i == nx - 1, walls.x1, walls.x1),
+        (j == 0, walls.y0, walls.y0),
+        (j == ny - 1, walls.y1, walls.y1),
+        (k == 0, walls.floor, walls.floor),
+        (k == nz - 1, ceiling_temperature(x[:, None, None], y[None, :, None], ceiling), T_BACKGROUND),
+    ]
 
 
 def boundary_field(grid, ceiling=DEFAULT_CEILING, walls=WALLS, interior=T_BACKGROUND):
@@ -151,20 +181,8 @@ def boundary_field(grid, ceiling=DEFAULT_CEILING, walls=WALLS, interior=T_BACKGR
     (три) соседями внутренних узлов не бывают: на решение они не влияют
     и нужны только для изображения границы.
     """
-    nx, ny, nz = grid.shape
-    x, y, _ = grid.axes
-    i = np.arange(nx)[:, None, None]
-    j = np.arange(ny)[None, :, None]
-    k = np.arange(nz)[None, None, :]
-    faces = [  # маска грани, значение на открытой грани, предел на её краю
-        (i == 0, walls.x0, walls.x0),
-        (i == nx - 1, walls.x1, walls.x1),
-        (j == 0, walls.y0, walls.y0),
-        (j == ny - 1, walls.y1, walls.y1),
-        (k == 0, walls.floor, walls.floor),
-        (k == nz - 1, ceiling_temperature(x[:, None, None], y[None, :, None], ceiling), T_BACKGROUND),
-    ]
     shape = grid.shape
+    faces = _faces(grid, ceiling, walls)
     count = np.zeros(shape)
     limits = np.zeros(shape)
     for mask, _, edge_value in faces:
@@ -178,6 +196,31 @@ def boundary_field(grid, ceiling=DEFAULT_CEILING, walls=WALLS, interior=T_BACKGR
     junction = count >= 2
     T[junction] = limits[junction] / count[junction]
     return T
+
+
+def junctions(grid, ceiling=DEFAULT_CEILING, walls=WALLS):
+    """12 рёбер и 8 вершин: узлы стыка, примыкающие грани и их пределы.
+
+    Пределы берутся из той же таблицы граней, что и в boundary_field, поэтому
+    value совпадает со значением, которое решатель хранит в этих узлах.
+    """
+    shape = grid.shape
+    masks = [np.broadcast_to(mask, shape) for mask, _, _ in _faces(grid, ceiling, walls)]
+    limits = [float(edge) for _, _, edge in _faces(grid, ceiling, walls)]
+    code = sum(mask.astype(int) << f for f, mask in enumerate(masks))
+    count = sum(mask.astype(int) for mask in masks)
+    result = []
+    for c in sorted(set(code[count >= 2].tolist()), key=lambda c: (bin(c).count("1"), c)):
+        members = [f for f in range(len(FACES)) if c >> f & 1]
+        result.append({
+            "kind": "ребро" if len(members) == 2 else "вершина",
+            "faces": [FACES[f][0] for f in members],
+            "coords": [FACES[f][1] for f in members],
+            "limits": [limits[f] for f in members],
+            "value": sum(limits[f] for f in members) / len(members),
+            "index": np.nonzero(code == c),
+        })
+    return result
 
 
 def laplacian(T, grid):

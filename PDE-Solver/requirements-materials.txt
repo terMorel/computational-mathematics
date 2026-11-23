@@ -1,6 +1,7 @@
 # Пересборка рисунков и презентации (стенду не нужны).
 # Проверено: kaleido 1.5.2, matplotlib 3.9.4, python-pptx 1.0.2, Pillow 11.3.0.
-# Kaleido 1.x рисует через установленный Chrome; если его нет: plotly_get_chrome
+# Kaleido 1.x требует Plotly не ниже 6.1.1 и рисует через установленный Chrome;
+# если Chrome нет, его ставит команда plotly_get_chrome.
 -r requirements.txt
 kaleido>=1.0,<2
 matplotlib>=3.8,<4

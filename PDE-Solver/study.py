@@ -4,7 +4,8 @@
 2. Граничные условия, рёбра и вершины, невязка, принцип максимума, случай A = 0.
 3. Сеточная сходимость: добавка от нагрева против ряда Фурье; полное поле на вложенных сетках
    вдали от граней.
-4. Затухание рисунка потолка с глубиной по слагаемым формулы.
+4. Горизонтальные срезы и вертикальный профиль при исходном нагреве; затухание рисунка
+   потолка с глубиной по слагаемым формулы.
 
 Пишет results.json и рисунки figures/convergence.png, figures/depth-decay.png.
 """
@@ -16,11 +17,12 @@ from math import log, pi, sqrt
 from pathlib import Path
 import platform
 import statistics
+import subprocess
 
 import numpy as np
 
-from figures import NAMES, convergence_figure, depth_figure
-from heat_room import (DEFAULT_CEILING, LX, LY, LZ, T_BACKGROUND, WALLS, Grid, boundary_field,
+from figures import DEFAULT_VIEW, NAMES, convergence_figure, depth_figure, value_at
+from heat_room import (DEFAULT_CEILING, LX, LY, LZ, T_BACKGROUND, WALLS, Grid,
                        ceiling_temperature, continuous_increment, discrete_exact, increment,
                        predicted_iterations, restrict, solve)
 
@@ -29,6 +31,30 @@ FIGURES = HERE / "figures"
 TOL = 1e-8          # порог относительной невязки при сравнении методов
 TOL_FINE = 1e-10    # порог для проверок сеточной сходимости и затухания
 REPEATS = 3         # время — медиана трёх запусков
+SLICE_HEIGHTS = [2.5, 2.2, 1.6, 1.3]   # срезы для отчёта и слайдов: глубина 0,1; 0,4; 1,0; 1,3 м
+
+
+def environment():
+    """Среда, в которой измерено время: система, архитектура, процессор, если известен."""
+    system, machine = platform.system(), platform.machine()
+    cpu = None
+    try:
+        if system == "Darwin":
+            system = f"macOS {platform.mac_ver()[0]}"
+            cpu = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True,
+                                 text=True, timeout=5).stdout.strip()
+        elif system == "Linux":
+            with open("/proc/cpuinfo", encoding="utf-8") as f:
+                cpu = next((line.split(":", 1)[1].strip() for line in f if line.startswith("model name")), None)
+        elif system == "Windows":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+            cpu = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+            system = f"Windows {platform.release()}"
+    except (OSError, subprocess.SubprocessError, ImportError):
+        cpu = None
+    return {"system": system, "machine": machine, "cpu": cpu or None,
+            "python": platform.python_version(), "numpy": np.__version__}
 
 
 def compare_methods(grid):
@@ -180,6 +206,37 @@ def full_field_convergence(steps, margin=0.5):
     return result
 
 
+def slice_summary(grid, heights):
+    """Пределы температуры на горизонтальных слоях при исходном нагреве.
+
+    interior — только внутренние узлы слоя, layer — вместе с узлами на стенах;
+    increment — max T(A) − T(A = 0) по внутренним узлам слоя (влияние нагрева потолка).
+    """
+    T = solve(grid, tol=TOL_FINE).T
+    T0 = solve(grid, replace(DEFAULT_CEILING, amplitude=0.0), tol=TOL_FINE).T
+    rows = []
+    for z in heights:
+        k = int(round(z / grid.steps[2]))
+        layer, inner = T[:, :, k], T[1:-1, 1:-1, k]
+        rows.append({"z": z, "depth": round(LZ - z, 6),
+                     "interior_min": float(inner.min()), "interior_max": float(inner.max()),
+                     "layer_min": float(layer.min()), "layer_max": float(layer.max()),
+                     "increment_max": float((T - T0)[1:-1, 1:-1, k].max())})
+        r = rows[-1]
+        print(f"  z = {z} м: внутри {r['interior_min']:.2f}…{r['interior_max']:.2f} °C, со стенами "
+              f"{r['layer_min']:.2f}…{r['layer_max']:.2f} °C, добавка до {r['increment_max']:.2f} °C")
+    return rows, T, T0
+
+
+def profile_summary(grid, T, T0, point, height):
+    x, y = point
+    result = {"x": x, "y": y, "z": height, "T": value_at(T, grid, x, y, height),
+              "T_ceiling": value_at(T, grid, x, y, LZ), "T_zero_amplitude": value_at(T0, grid, x, y, height)}
+    print(f"  профиль под ({x}; {y}) м: z = {height} м — {result['T']:.2f} °C, потолок {result['T_ceiling']:.2f} °C, "
+          f"при A = 0 — {result['T_zero_amplitude']:.2f} °C")
+    return result
+
+
 def crossing(depths, values, level):
     """Глубина, на которой доля амплитуды падает до level: линейная интерполяция
     между соседними слоями сетки; возвращает и сам интервал слоёв."""
@@ -236,6 +293,8 @@ def save(fig, name, width, height):
 
 
 def main():
+    env = environment()   # та же среда, в которой ниже измеряется время
+    print("Среда замера времени:", env)
     grid = Grid.with_step(0.1)
     print(f"Сетка {grid.nx}×{grid.ny}×{grid.nz}, неизвестных {grid.unknowns}, "
           f"ρ(Якоби) = {grid.jacobi_radius():.5f}, ω_опт = {grid.optimal_omega():.4f}")
@@ -250,7 +309,9 @@ def main():
     print("3. Сеточная сходимость")
     inc = increment_convergence([0.2, 0.1, 0.05])
     full = full_field_convergence([0.2, 0.1, 0.05])
-    print("4. Затухание с глубиной")
+    print("4. Срезы, профиль и затухание с глубиной")
+    slices, T, T0 = slice_summary(grid, SLICE_HEIGHTS)
+    profile = profile_summary(grid, T, T0, DEFAULT_VIEW["profile"], DEFAULT_VIEW["z"])
     decay_grid = Grid.with_step(0.05)
     depths, curves, decay = depth_decay(decay_grid)
 
@@ -261,12 +322,10 @@ def main():
                  "jacobi_radius": grid.jacobi_radius(), "optimal_omega": grid.optimal_omega()},
         "walls": {"x0": WALLS.x0, "x1": WALLS.x1, "y0": WALLS.y0, "y1": WALLS.y1, "floor": WALLS.floor},
         "tolerance": TOL,
-        "timing": {"repeats": REPEATS, "statistic": "медиана", "python": platform.python_version(),
-                   "numpy": np.__version__, "machine": platform.machine(),
-                   "system": f"{platform.system()} {platform.release()}"},
+        "timing": {"repeats": REPEATS, "statistic": "медиана", **env},
         "methods": methods, "gains": gains, "omega_scan": scan, "checks": checks,
         "zero_amplitude": a_zero, "increment_convergence": inc, "full_field_convergence": full,
-        "depth_decay": decay,
+        "slices": slices, "profile": profile, "depth_decay": decay,
     }
     (HERE / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print("Готово: results.json, figures/convergence.png, figures/depth-decay.png")

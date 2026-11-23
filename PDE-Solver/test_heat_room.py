@@ -8,7 +8,7 @@ import numpy as np
 
 from heat_room import (DEFAULT_CEILING, LX, LY, T_BACKGROUND, WALLS, Grid, boundary_field,
                        ceiling_temperature, continuous_increment, discrete_exact, increment,
-                       relaxation_sweep, restrict, solve)
+                       junctions, relaxation_sweep, restrict, solve)
 
 GRID = Grid.with_step(0.2)   # 20 × 15 × 13 шагов
 
@@ -89,6 +89,20 @@ class BoundaryTests(unittest.TestCase):
             self.assertAlmostEqual(T[vertex], expected, places=12)
         self.assertEqual(T[0, 0, 5], 17.0)   # ребро x = y = 0
         self.assertEqual(T[0, 0, 0], 18.0)   # вершина (0, 0, 0)
+
+    def test_junction_table_matches_solver_values(self):
+        """Подсказки стенда берут пределы из той же таблицы граней, что и решатель."""
+        table = junctions(GRID)
+        self.assertEqual(sum(e["kind"] == "ребро" for e in table), 12)
+        self.assertEqual(sum(e["kind"] == "вершина" for e in table), 8)
+        for entry in table:
+            np.testing.assert_array_equal(self.T[entry["index"]], entry["value"])
+        ceiling_edge = next(e for e in table if e["coords"] == ["x = 0", "z = 2,6"])
+        self.assertEqual(ceiling_edge["limits"], [WALLS.x0, T_BACKGROUND])
+        self.assertEqual(ceiling_edge["value"], 18.0)
+        corner = next(e for e in table if e["coords"] == ["x = 0", "y = 0", "z = 0"])
+        self.assertEqual(corner["limits"], [WALLS.x0, WALLS.y0, WALLS.floor])
+        self.assertEqual(corner["value"], 18.0)
 
     def test_edges_and_vertices_do_not_enter_interior_equations(self):
         """Подставляем на все рёбра и вершины 1000 °C: итерация не меняет решение."""
