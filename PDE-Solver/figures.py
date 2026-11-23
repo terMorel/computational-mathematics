@@ -370,6 +370,7 @@ def convergence_figure(solutions, tol):
 def depth_figure(depths, curves, summary):
     """curves: [(подпись, доля амплитуды по глубине)]; summary — пересечения 10 %."""
     fig = go.Figure()
+    crossings = sorted(summary[label]["tenth"]["depth"] for label, _ in curves)
     for color, (label, values) in zip(SERIES, curves):
         fig.add_trace(go.Scatter(x=depths, y=values, mode="lines", name=label,
                                  line=dict(color=color, width=3),
@@ -379,8 +380,13 @@ def depth_figure(depths, curves, summary):
         fig.add_trace(go.Scatter(x=[d10], y=[0.1], mode="markers",
                                  marker=dict(size=11, color=color, line=dict(color="white", width=2)),
                                  hoverinfo="skip", showlegend=False))
-        fig.add_annotation(x=d10, y=0.1, text=f"{fmt(d10, 2)} м", showarrow=False, yshift=17,
-                           font=dict(size=15, color=INK))
+        # Близкие точки подписываем в разные стороны, чтобы подписи не слипались.
+        k = crossings.index(d10)
+        left = k + 1 < len(crossings) and crossings[k + 1] - d10 < 0.3
+        right = k > 0 and d10 - crossings[k - 1] < 0.3
+        fig.add_annotation(x=d10, y=0.1, text=f"{fmt(d10, 2)} м", showarrow=False, yshift=18,
+                           xanchor="right" if left else ("left" if right else "center"),
+                           xshift=-4 if left else (4 if right else 0), font=dict(size=15, color=INK))
     k = summary["wave_k"]
     lz = max(depths)
     estimate = np.sinh(k * (lz - depths)) / np.sinh(k * lz)
@@ -388,12 +394,14 @@ def depth_figure(depths, curves, summary):
                              name=f"одна гармоника k = {fmt(k, 2)} м⁻¹ (оценка)",
                              line=dict(color=MUTED, width=2, dash="dash"), hoverinfo="skip"))
     fig.add_hline(y=0.1, line=dict(color=MUTED, width=1.5))
-    fig.add_annotation(x=lz, y=0.1, text="порог 10 % (точки — интерполяция между слоями)",
-                       showarrow=False, xanchor="right", yanchor="bottom", font=dict(size=14, color=INK_2))
+    fig.add_annotation(x=lz, y=0.1, text="10 %", showarrow=False, xanchor="right", yanchor="bottom",
+                       font=dict(size=15, color=INK_2))
     fig.update_layout(**base_layout(
-        title=_title(f"Доля амплитуды слагаемого на срезе · сетка {summary['grid']}", 18),
-        legend=dict(orientation="h", y=1.0, x=0.0, xanchor="left", yanchor="bottom", font=dict(size=14)),
-        margin=dict(l=80, r=30, t=96, b=60)))
+        title=_title(f"Доля амплитуды слагаемого на срезе · сетка {summary['grid']} · "
+                     "точки — интерполяция между слоями", 17),
+        legend=dict(x=0.98, y=0.97, xanchor="right", yanchor="top", font=dict(size=15),
+                    bgcolor="rgba(252,252,251,0.9)"),
+        margin=dict(l=80, r=30, t=60, b=60)))
     fig.update_xaxes(**axis("глубина d от потолка, м", range=[0, lz], dtick=0.25))
     fig.update_yaxes(**axis("доля амплитуды на потолке", range=[0, 1.02], tickformat=".0%"))
     return fig
