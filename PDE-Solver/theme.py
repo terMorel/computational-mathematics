@@ -57,7 +57,7 @@ def base_layout(**extra):
         plot_bgcolor=SURFACE,
         separators=", ",
         margin=dict(l=60, r=20, t=48, b=52),
-        hoverlabel=dict(font=dict(family=FONT, size=15), bgcolor="white", bordercolor=AXIS),
+        hoverlabel=dict(font=dict(family=FONT, size=15, color=INK), bgcolor="white", bordercolor=AXIS),
     )
     layout.update(extra)
     return layout

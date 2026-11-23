@@ -1,9 +1,10 @@
-"""Рисунки для README и слайдов: python make_figures.py
+"""Рисунки для README: python make_figures.py
 
-Те же функции, что и в стенде (figures.py). Сценарий «до/после» повторяет
-действия из README: пятно 1 перенесено в (2,2; 2,0) м, A = 85 °C, горизонтальный
-срез опущен с 2,3 до 1,6 м, щелчок по центру пятна ставит профиль в (2,2; 2,0) м.
-Вертикальный срез не двигается (y = 1,65 м). Пары «до/после» — на одной шкале.
+Те же функции, что и в стенде (figures.py). Схема комнаты, горизонтальные срезы,
+вертикальный срез и профиль при исходном нагреве. Пары «до/после» повторяют
+сценарий показа стенда из README: пятно 1 перенесено в (2,2; 2,0) м, A = 85 °C,
+горизонтальный срез опущен с 2,3 до 1,6 м, щелчок по центру пятна ставит профиль
+в (2,2; 2,0) м; вертикальный срез остаётся на y = 1,65 м. Пары — на одной шкале.
 Скриншот работающего стенда делает screenshot.py.
 """
 
@@ -14,9 +15,10 @@ import numpy as np
 import plotly.graph_objects as go
 
 from figures import (DEFAULT_PARAMS, DEFAULT_VIEW, ceiling_from_params, ceiling_grid,
-                     ceiling_map_figure, fmt, hslice_figure, profile_figure, room_figure,
-                     scale_for, slices_figure, value_at, vslice_figure)
-from heat_room import LX, LY, LZ, WALLS, Grid, solve
+                     ceiling_map_figure, fmt, hslice_figure, profile_compare_figure, scale_for,
+                     slices_figure, value_at, vslice_figure)
+from heat_room import LX, LY, LZ, T_BACKGROUND, WALLS, Grid, solve
+from study import SLICE_HEIGHTS
 from theme import INK, INK_2, SURFACE, base_layout, colorbar, heat_scale
 
 HERE = Path(__file__).parent
@@ -42,8 +44,8 @@ def save(fig, name, width, height, trim=False):
     print("  figures/" + name)
 
 
-def scheme_figure(params, scale):
-    """Схема: грани в цвете своей температуры, подписи и пример ребра и вершины."""
+def scheme_figure(params, scale, short=False):
+    """Схема: грани в цвете своей температуры, подписи и один пример стыка."""
     x, y, Tc = ceiling_grid(params, 81, 61)
     X, Y = np.meshgrid(x, y, indexing="ij")
     common = dict(colorscale=heat_scale(scale), cmin=scale[0], cmax=scale[1], showscale=False,
@@ -72,31 +74,31 @@ def scheme_figure(params, scale):
         xs += [p[0], q[0], None]; ys += [p[1], q[1], None]; zs += [p[2], q[2], None]
     fig.add_trace(go.Scatter3d(x=xs, y=ys, z=zs, mode="lines", line=dict(color=INK_2, width=3),
                                hoverinfo="skip"))
-    # Ребро x = y = 0 и вершина (0, 0, 0) — пример правила на стыках.
-    fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[0, LZ], mode="lines",
+    # Один пример стыка: ребро стены x = 0 и потолка, точка (0; 1,5; 2,6) м.
+    fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, LY], z=[LZ, LZ], mode="lines",
                                line=dict(color="#2a78d6", width=12), hoverinfo="skip"))
-    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode="markers",
-                               marker=dict(size=7, color="#2a78d6"), hoverinfo="skip"))
+    fig.add_trace(go.Scatter3d(x=[0], y=[LY / 2], z=[LZ], mode="markers",
+                               marker=dict(size=8, color="#2a78d6"), hoverinfo="skip"))
 
     def note(x0, y0, z0, text, color=INK, **kw):
         # Подписи — аннотации сцены (SVG поверх WebGL), они не портят прозрачность.
         return dict(x=x0, y=y0, z=z0, text=text, showarrow=False, font=dict(size=19, color=color),
                     bgcolor="rgba(252,252,251,0.88)", borderpad=3, **kw)
 
-    edge = (WALLS.x0 + WALLS.y0) / 2
-    vertex = (WALLS.x0 + WALLS.y0 + WALLS.floor) / 3
+    node = (WALLS.x0 + T_BACKGROUND) / 2
     annotations = [
-        note(0, LY / 2, LZ * 0.62, f"x = 0: {fmt(WALLS.x0, 0)} °C"),
+        note(0, LY * 0.62, LZ * 0.5, f"x = 0: {fmt(WALLS.x0, 0)} °C"),
         note(LX * 0.62, LY, LZ * 0.42, f"y = 3 м: {fmt(WALLS.y1, 0)} °C"),
         note(LX, LY / 2, LZ * 0.45, f"x = 4 м: {fmt(WALLS.x1, 0)} °C"),
         note(LX * 0.74, 0, 0.12, f"y = 0: {fmt(WALLS.y0, 0)} °C"),
         note(LX * 0.55, LY * 0.6, 0.0, f"пол: {fmt(WALLS.floor, 0)} °C"),
-        note(LX / 2, LY / 2, LZ + 0.35, "потолок: формула, на краю 20 °C"),
-        note(0, 0, LZ * 0.4, f"ребро x = y = 0:<br>({fmt(WALLS.x0, 0)} + {fmt(WALLS.y0, 0)}) / 2 = "
-                             f"{fmt(edge, 0)} °C", color="#2a78d6", xanchor="left", xshift=16, align="left"),
-        note(0, 0, 0, f"вершина (0, 0, 0):<br>({fmt(WALLS.x0, 0)} + {fmt(WALLS.y0, 0)} + {fmt(WALLS.floor, 0)}) / 3 = "
-                      f"{fmt(vertex, 0)} °C", color="#2a78d6", xanchor="left", yanchor="top", xshift=16,
-             yshift=-8, align="left"),
+        note(LX * 0.62, LY / 2, LZ + 0.32, "потолок: формула, у края → 20 °C"),
+        note(0, LY / 2, LZ, f"узел ребра: {fmt(node, 0)} °C", color="#2a78d6", yanchor="bottom", yshift=12)
+        if short else
+        note(0, LY / 2, LZ, f"ребро x = 0, z = 2,6 м<br>предел стены {fmt(WALLS.x0, 0)} °C, "
+                            f"потолка {fmt(T_BACKGROUND, 0)} °C<br>узел сетки: ({fmt(WALLS.x0, 0)} + "
+                            f"{fmt(T_BACKGROUND, 0)}) / 2 = {fmt(node, 0)} °C",
+             color="#2a78d6", xanchor="right", yanchor="bottom", xshift=-14, yshift=10, align="right"),
     ]
     fig.update_layout(**base_layout(
         showlegend=False, margin=dict(l=0, r=0, t=0, b=0),
@@ -109,7 +111,8 @@ def scheme_figure(params, scale):
 def main():
     OUT.mkdir(exist_ok=True)
     print("Расчёт полей…")
-    base = solve(GRID, ceiling_from_params(DEFAULT_PARAMS), tol=1e-8)
+    base = solve(GRID, ceiling_from_params(DEFAULT_PARAMS), tol=1e-10)
+    flat = solve(GRID, ceiling_from_params({**DEFAULT_PARAMS, "amp": 0.0}), tol=1e-10)
     demo = solve(GRID, ceiling_from_params(DEMO_PARAMS), tol=1e-8, start=base.T)
     scale = scale_for(DEFAULT_PARAMS)
     both = (scale[0], max(scale[1], scale_for(DEMO_PARAMS)[1]))   # общая шкала «до/после»
@@ -120,23 +123,18 @@ def main():
               f"T на потолке = {value_at(sol.T, GRID, x, y, LZ):.1f} °C")
     print("Рисунки:")
     save(scheme_figure(DEFAULT_PARAMS, scale), "scheme.png", 1200, 820, trim=True)
-    save(room_figure(base.T, GRID, DEFAULT_PARAMS, DEFAULT_VIEW, scale, title=" "), "room-3d.png",
-         1200, 860, trim=True)
-    save(ceiling_map_figure(DEFAULT_PARAMS, 0, DEFAULT_VIEW, scale, title="Потолок, z = 2,6 м"),
-         "ceiling-map.png", 900, 640)
-    save(hslice_figure(base.T, GRID, DEFAULT_VIEW, scale), "hslice.png", 900, 640)
+    save(slices_figure(base.T, GRID, SLICE_HEIGHTS, scale), "slices.png", 1800, 520)
     save(vslice_figure(base.T, GRID, DEFAULT_VIEW, scale), "vslice.png", 1000, 600)
-    save(profile_figure(base.T, GRID, DEFAULT_VIEW, scale), "profile.png", 700, 700)
-    save(slices_figure(base.T, GRID, [2.5, 2.2, 1.8, 1.3], scale), "slices.png", 1800, 520)
-    save(slices_figure(base.T, GRID, [2.5, 2.2, 1.8, 1.3], scale, cols=2), "slices-grid.png", 1100, 980)
-    # Сценарий живого показа: «до» и «после» на одной шкале.
+    save(profile_compare_figure(base.T, flat.T, GRID, DEFAULT_VIEW["profile"], DEFAULT_VIEW["z"], scale,
+                                DEFAULT_PARAMS["amp"]), "profile.png", 760, 700)
+    # Сценарий показа стенда: «до» и «после» на одной шкале.
     save(ceiling_map_figure(DEFAULT_PARAMS, 0, DEFAULT_VIEW, both,
                             title="До: A = 60 °C, пятно 1 в (1,32; 1,65) м"), "demo-before-ceiling.png", 900, 640)
     save(ceiling_map_figure(DEMO_PARAMS, 0, DEMO_VIEW, both,
-                            title="После: A = 85 °C, пятно 1 в (2,2; 2,0) м"), "demo-after-ceiling.png", 900, 640)
-    save(hslice_figure(base.T, GRID, DEFAULT_VIEW, both, title="До: срез z = 2,3 м (глубина 0,3 м)"),
+                            title="После: A = 85 °C, пятно 1 в (2,20; 2,00) м"), "demo-after-ceiling.png", 900, 640)
+    save(hslice_figure(base.T, GRID, DEFAULT_VIEW, both, title="До: срез z = 2,30 м (глубина 0,30 м)"),
          "demo-before-hslice.png", 900, 640)
-    save(hslice_figure(demo.T, GRID, DEMO_VIEW, both, title="После: срез z = 1,6 м (глубина 1,0 м)"),
+    save(hslice_figure(demo.T, GRID, DEMO_VIEW, both, title="После: срез z = 1,60 м (глубина 1,00 м)"),
          "demo-after-hslice.png", 900, 640)
 
 

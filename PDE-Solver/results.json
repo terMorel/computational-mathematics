@@ -18,10 +18,11 @@
   "timing": {
     "repeats": 3,
     "statistic": "медиана",
-    "python": "3.9.6",
-    "numpy": "2.0.2",
+    "system": "macOS 26.7.2",
     "machine": "arm64",
-    "system": "Darwin 25.6.0"
+    "cpu": "Apple M5 Pro",
+    "python": "3.9.6",
+    "numpy": "2.0.2"
   },
   "methods": [
     {
@@ -29,7 +30,7 @@
       "omega": 1.0,
       "iterations": 2396,
       "predicted": 3477,
-      "seconds": 0.399,
+      "seconds": 0.384,
       "max_error_vs_exact": 2.080970005735594e-05
     },
     {
@@ -37,7 +38,7 @@
       "omega": 1.0,
       "iterations": 1208,
       "predicted": 1738,
-      "seconds": 0.658,
+      "seconds": 0.645,
       "max_error_vs_exact": 2.067879926315186e-05
     },
     {
@@ -53,8 +54,8 @@
     "iterations_jacobi_to_sor": 21.98165137614679,
     "iterations_seidel_to_sor": 11.082568807339449,
     "iterations_jacobi_to_seidel": 1.9834437086092715,
-    "time_jacobi_to_sor": 5.7,
-    "time_seidel_to_sor": 9.4
+    "time_jacobi_to_sor": 5.485714285714285,
+    "time_seidel_to_sor": 9.214285714285714
   },
   "omega_scan": [
     {
@@ -144,6 +145,52 @@
       0.03148044232133884
     ],
     "order": 1.9768911439122077
+  },
+  "slices": [
+    {
+      "z": 2.5,
+      "depth": 0.1,
+      "interior_min": 18.01689024670057,
+      "interior_max": 52.12541377961375,
+      "layer_min": 16.0,
+      "layer_max": 52.12541377961375,
+      "increment_max": 32.14465299800552
+    },
+    {
+      "z": 2.2,
+      "depth": 0.4,
+      "interior_min": 16.85208395062187,
+      "interior_max": 38.462642565827714,
+      "layer_min": 16.0,
+      "layer_max": 38.462642565827714,
+      "increment_max": 18.560635489364568
+    },
+    {
+      "z": 1.6,
+      "depth": 1.0,
+      "interior_min": 16.57196262880652,
+      "interior_max": 26.98916835899027,
+      "layer_min": 16.0,
+      "layer_max": 26.98916835899027,
+      "increment_max": 7.048731933056846
+    },
+    {
+      "z": 1.3,
+      "depth": 1.3,
+      "interior_min": 16.507147699777047,
+      "interior_max": 24.494956306835153,
+      "layer_min": 16.0,
+      "layer_max": 24.494956306835153,
+      "increment_max": 4.470557639130043
+    }
+  ],
+  "profile": {
+    "x": 1.32,
+    "y": 1.65,
+    "z": 2.3,
+    "T": 39.03024158077643,
+    "T_ceiling": 54.29870805483722,
+    "T_zero_amplitude": 19.804231445645797
   },
   "depth_decay": {
     "Пятно 1": {
