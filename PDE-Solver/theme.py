@@ -10,7 +10,6 @@ AXIS = "#c3c2b7"
 SURFACE = "#fcfcfb"
 PAGE = "#f4f3ef"
 
-# Категориальные цвета (фиксированный порядок): синий, оранжевый, бирюзовый.
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a")
 ACCENT = SERIES[0]
 
@@ -47,13 +46,13 @@ def heat_scale(scale):
     return stops
 
 
-HEAT = WARM   # для мест, где 20 °C — нижний предел шкалы
+HEAT = WARM
 
 
 def base_layout(**extra):
     layout = dict(
         font=dict(family=FONT, size=15, color=INK),
-        paper_bgcolor=SURFACE,   # сплошной фон: PNG читаются и в тёмной теме GitHub
+        paper_bgcolor=SURFACE,
         plot_bgcolor=SURFACE,
         separators=", ",
         margin=dict(l=60, r=20, t=48, b=52),

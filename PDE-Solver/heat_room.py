@@ -15,7 +15,7 @@ import time
 import numpy as np
 
 LX, LY, LZ = 4.0, 3.0, 2.6
-T_BACKGROUND = 20.0      # фон формулы потолка и её предел на краю потолка
+T_BACKGROUND = 20.0
 SPOT_WEIGHTS = (0.65, 0.30)
 BASE_LEVEL, WAVE_WEIGHT = 0.12, 0.15
 
@@ -24,11 +24,11 @@ BASE_LEVEL, WAVE_WEIGHT = 0.12, 0.15
 class Walls:
     """Постоянные температуры открытых граней, °C."""
 
-    x0: float = 16.0     # стена x = 0
-    x1: float = 24.0     # стена x = 4 м
-    y0: float = 18.0     # стена y = 0
-    y1: float = 22.0     # стена y = 3 м
-    floor: float = 20.0  # пол z = 0
+    x0: float = 16.0
+    x1: float = 24.0
+    y0: float = 18.0
+    y1: float = 22.0
+    floor: float = 20.0
 
     @property
     def coldest(self):
@@ -58,7 +58,6 @@ class Ceiling:
     m: int = 2
     n: int = 2
     spots: tuple = (Spot(0.33, 0.55, 0.16, 0.22), Spot(0.72, 0.35, 0.13, 0.17))
-    # Множители слагаемых формулы; нужны, чтобы по линейности разложить поле.
     base: float = BASE_LEVEL
     weights: tuple = SPOT_WEIGHTS
     wave: float = WAVE_WEIGHT
@@ -84,7 +83,7 @@ def ceiling_temperature(x, y, ceiling=DEFAULT_CEILING):
     gauss = [np.exp(-0.5 * (((u - s.u) / s.sx) ** 2 + ((v - s.v) / s.sy) ** 2))
              for s in ceiling.spots]
     wave = 0.5 * (1.0 + np.sin(2 * pi * ceiling.m * u) * np.cos(2 * pi * ceiling.n * v))
-    envelope = np.sin(pi * u) ** 2 * np.sin(pi * v) ** 2   # → 0 на краю потолка
+    envelope = np.sin(pi * u) ** 2 * np.sin(pi * v) ** 2
     pattern = (ceiling.base + ceiling.weights[0] * gauss[0]
                + ceiling.weights[1] * gauss[1] + ceiling.wave * wave)
     return T_BACKGROUND + ceiling.amplitude * envelope * pattern
@@ -144,7 +143,6 @@ class Grid:
         return 2 / (1 + sqrt(1 - rho**2))
 
 
-# Грани комнаты: подпись и координата, задающая грань.
 FACES = (("стена x = 0", "x = 0"), ("стена x = 4 м", "x = 4"), ("стена y = 0", "y = 0"),
          ("стена y = 3 м", "y = 3"), ("пол z = 0", "z = 0"), ("потолок z = 2,6 м", "z = 2,6"))
 

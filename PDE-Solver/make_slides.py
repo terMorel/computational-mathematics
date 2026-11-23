@@ -42,21 +42,21 @@ OUT = HERE / "presentation"
 NAME = "PDE-Solver"
 TITLE = "Стационарное распределение температуры в комнате"
 RESULTS = json.loads((HERE / "results.json").read_text(encoding="utf-8"))
-BUILD = None                     # временная папка сборки, задаётся в main()
+BUILD = None
 
 FONT = "Arial"
 INK = RGBColor(0x0B, 0x0B, 0x0B)
 INK_2 = RGBColor(0x52, 0x51, 0x4E)
 MUTED = RGBColor(0x89, 0x87, 0x81)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-PAPER = RGBColor(0xF7, 0xF5, 0xF0)       # фон слайдов
-PANEL = RGBColor(0xFC, 0xFC, 0xFB)       # карточки и фон рисунков Plotly (theme.SURFACE)
+PAPER = RGBColor(0xF7, 0xF5, 0xF0)
+PANEL = RGBColor(0xFC, 0xFC, 0xFB)
 RULE = RGBColor(0xE1, 0xE0, 0xD9)
-HEAD = RGBColor(0xEE, 0xEA, 0xE3)        # шапка таблиц
+HEAD = RGBColor(0xEE, 0xEA, 0xE3)
 ZEBRA = RGBColor(0xF6, 0xF4, 0xEF)
-TINT = RGBColor(0xFB, 0xE7, 0xD6)        # плашка с выводом под графиком
-TERRA = RGBColor(0xB0, 0x45, 0x26)       # метки разделов и номера шагов
-DARK = RGBColor(0x2E, 0x17, 0x20)        # тёмный конец тепловой шкалы
+TINT = RGBColor(0xFB, 0xE7, 0xD6)
+TERRA = RGBColor(0xB0, 0x45, 0x26)
+DARK = RGBColor(0x2E, 0x17, 0x20)
 DARK_CARD = RGBColor(0x42, 0x28, 0x33)
 LIGHT_ON_DARK = RGBColor(0xE8, 0xDF, 0xD6)
 FOOT_ON_DARK = RGBColor(0xA8, 0x95, 0x9C)
@@ -64,22 +64,22 @@ ORANGE = RGBColor(0xF6, 0xA3, 0x52)
 
 W, H = 13.333, 7.5
 M = 0.6
-TOP = 1.45                       # верх области содержимого
+TOP = 1.45
 
 
 def nbsp(value):
     """Число не отрывается от единицы, «z = 1,6» — от знака, «4 × 3» — от знака умножения."""
     value = re.sub(r"([\d)]) (м⁻¹|м⁻²|м|°C|с|раз|итерац\w*|%|узл\w*)", "\\1\u00a0\\2", value)
     value = re.sub(r"\b([xyzAhkmnsωτρμΛpd]) = ", "\\1\u00a0=\u00a0", value)
-    value = re.sub(r"(\b[ijks]|\}) ([−+]) 1\b", "\\1\u00a0\\2\u00a01", value)   # «i − 1», «M_{x} − 1»
-    value = value.replace("} = ", "}\u00a0=\u00a0")                                      # «λ_{max} = 1196,8»
-    value = re.sub(r"\((\d+,\d+); (\d+,\d+)\)", "(\\1;\u00a0\\2)", value)  # координаты точки
-    value = re.sub(r"(\d) (\d{3})\b", "\\1\u00a0\\2", value)                # 28 275
-    for _ in range(2):   # «4 × 3 × 2,6»: соседние пары перекрываются
+    value = re.sub(r"(\b[ijks]|\}) ([−+]) 1\b", "\\1\u00a0\\2\u00a01", value)
+    value = value.replace("} = ", "}\u00a0=\u00a0")
+    value = re.sub(r"\((\d+,\d+); (\d+,\d+)\)", "(\\1;\u00a0\\2)", value)
+    value = re.sub(r"(\d) (\d{3})\b", "\\1\u00a0\\2", value)
+    for _ in range(2):
         value = re.sub(r"(\d) × (\d)", "\\1\u00a0×\u00a0\\2", value)
     value = re.sub(r" — (\d)", "\u00a0— \\1", value)
     value = value.replace("T(A) − T(0)", "T(A)\u00a0−\u00a0T(0)")
-    value = re.sub(r"(?<![\w\u00a0])([вксуоаиВКСУОАИ]) ", "\\1\u00a0", value)   # «в комнате»
+    value = re.sub(r"(?<![\w\u00a0])([вксуоаиВКСУОАИ]) ", "\\1\u00a0", value)
     return value
 
 
@@ -144,8 +144,8 @@ def stencil_picture():
     fig, ax = plt.subplots(figsize=(5.4, 4.8), dpi=220)
     ax.set_aspect("equal")
     ax.axis("off")
-    r, d = 1.55, (0.58, 0.4)             # длина луча; направление оси l на рисунке (перспектива)
-    nodes = {  # подпись: (x, y узла, x и y подписи, выравнивание)
+    r, d = 1.55, (0.58, 0.4)
+    nodes = {
         r"$m-1$": (-r, 0.0, -r - 0.36, 0.0, "right", "center"),
         r"$m+1$": (r, 0.0, r + 0.36, 0.0, "left", "center"),
         r"$l-1$": (-r * d[0], -r * d[1], -r * d[0] - 0.3, -r * d[1] - 0.2, "right", "top"),
@@ -205,7 +205,7 @@ def tau_figure(r, grid):
     """Число итераций от параметра τ: расчёт и оценка ln ε⁻¹ / ln ρ⁻¹(τ)."""
     rho, opt, tol = grid.jacobi_radius(), grid.optimal_omega(), r["tolerance"]
 
-    def rho_tau(t):   # спектральный радиус верхней релаксации для согласованно упорядоченной матрицы
+    def rho_tau(t):
         if t <= opt:
             return ((t * rho + sqrt(max(t * t * rho * rho - 4 * (t - 1), 0.0))) / 2) ** 2
         return t - 1
@@ -244,7 +244,7 @@ def order_figure(inc, full):
     """Ошибка добавки и разность полного поля по шагу сетки, обе оси логарифмические."""
     h = [row["h"] for row in inc]
     err = [row["max_error"] for row in inc]
-    c = 0.55 * err[1] / h[1] ** 2            # прямая C·h², сдвинутая ниже точек
+    c = 0.55 * err[1] / h[1] ** 2
     ref = [0.045, 0.22]
     marker = dict(size=10, line=dict(color="white", width=2))
     fig = go.Figure()
@@ -334,7 +334,7 @@ def text(slide, x, y, w, h, runs, size=18, color=INK, bold=False, anchor=MSO_ANC
 
 def card(slide, x, y, w, h, color=PANEL, line=RULE):
     shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-    shape.adjustments[0] = min(0.12 / min(w, h), 0.5)       # радиус скругления ≈ 0,12 дюйма
+    shape.adjustments[0] = min(0.12 / min(w, h), 0.5)
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
     if line is None:
@@ -490,22 +490,21 @@ def build(path):
     l_min, l_max = grid.spectrum_bounds()
 
     cover = untitled(hslice_figure(base.T, grid, view, scale), top=14)
-    cover.data = cover.data[:1]                       # только поле, без вспомогательных линий
+    cover.data = cover.data[:1]
     img_cover = export(cover, "cover.png", 640, 480, 1.3)
     from make_figures import scheme_figure
     img_scheme = export(scheme_figure(DEFAULT_PARAMS, scale, short=True), "scheme.png", 820, 600, 1.25)
     ceiling = untitled(ceiling_map_figure(DEFAULT_PARAMS, 0, view, scale), top=14)
-    ceiling.data = [ceiling.data[0]] + list(ceiling.data[3:])   # тепловая карта и пятна 1, 2
+    ceiling.data = [ceiling.data[0]] + list(ceiling.data[3:])
     img_ceiling = export(ceiling, "ceiling.png", 600, 440, 1.3)
     img_stencil = stencil_picture()
     img_matrix = matrix_picture()
     img_tau = export(tau_figure(r, grid), "tau.png", 600, 520, 1.3)
     solutions = [solve(grid, method=m, tol=r["tolerance"]) for m in ("jacobi", "seidel", "sor")]
     conv = untitled(convergence_figure(solutions, r["tolerance"]), top=60)
-    # Подписи у концов линий на узком рисунке налезают друг на друга; числа — в таблице.
     conv.layout.annotations = [a for a in conv.layout.annotations if "<b>" not in a.text]
     conv.update_yaxes(title_text="относительная невязка")
-    for trace in conv.data:   # параметр релаксации на слайдах обозначен τ
+    for trace in conv.data:
         trace.name = trace.name.replace("ω", "τ")
     img_conv = export(conv, "convergence.png", 700, 450, 1.3)
     img_order = export(order_figure(inc, full), "order.png", 600, 540, 1.3)
@@ -514,12 +513,11 @@ def build(path):
     img_vslice = export(vslice_figure(base.T, grid, view, scale), "vslice.png", 600, 420, 1.3)
     img_profile = export(profile_compare_figure(base.T, flat.T, grid, view["profile"], view["z"], scale,
                                                 DEFAULT_PARAMS["amp"]), "profile.png", 520, 500, 1.3)
-    from study import depth_decay   # тот же расчёт, что и в отчёте
+    from study import depth_decay
     depths, curves, summary = depth_decay(Grid.with_step(0.05))
     img_decay = export(untitled(depth_figure(depths, curves, summary), top=20), "depth.png", 760, 470, 1.3)
 
     F = {name: formula(name, tex) for name, tex in {
-        # постановка
         "fourier": r"$\mathbf{q} = -\kappa\,\nabla T$",
         "balance": r"$c\rho\,\dfrac{\partial T}{\partial t} = -\mathrm{div}\,\mathbf{q} = \kappa\,\Delta T$",
         "laplace": r"$\Delta T = \dfrac{\partial^2 T}{\partial x^2} + \dfrac{\partial^2 T}{\partial y^2}"
@@ -532,7 +530,6 @@ def build(path):
         "wave": r"$R = \dfrac{1}{2}\,(1 + \sin 2\pi m u\;\cos 2\pi n v),\qquad m = n = %d$" % DEFAULT_PARAMS["m"],
         "uv": r"$u = x / L_x,\qquad v = y / L_y,\qquad A = %s\,^{\circ}\mathrm{C}$" % amp,
         "cap": r"$\sin^2(\pi u)\,\sin^2(\pi v)$",
-        # схема
         "taylor": r"$T(x \pm h) = T \pm h\,T' + \dfrac{h^2}{2}\,T'' \pm \dfrac{h^3}{6}\,T''' + \dfrac{h^4}{24}\,T^{(4)}"
                   r" + \ldots$",
         "second": r"$\Lambda_1 T = \dfrac{T(x+h) - 2\,T(x) + T(x-h)}{h^2} = T'' + \dfrac{h^2}{12}\,T^{(4)} + O(h^4)$",
@@ -540,13 +537,11 @@ def build(path):
                   r"\qquad T_{mln} = \varphi\ \ \mathrm{на}\ \Gamma_h$",
         "mean": r"$T_{mln} = \dfrac{1}{6}\,(T_{m-1,l,n} + T_{m+1,l,n} + T_{m,l-1,n} + T_{m,l+1,n}"
                 r" + T_{m,l,n-1} + T_{m,l,n+1})$",
-        # свойства
         "maxp": r"$\min_{\Gamma_h}\varphi \;\leq\; T_{mln} \;\leq\; \max_{\Gamma_h}\varphi$",
         "stab": r"$\Vert T \Vert_C \;\leq\; \max_{\Gamma_h} |\varphi|$",
         "eigf": r"$v_{mln} = \sin\dfrac{p\pi m}{M_x}\,\sin\dfrac{q\pi l}{M_y}\,\sin\dfrac{r\pi n}{M_z}$",
         "eig": r"$\lambda_{pqr} = \dfrac{4}{h^2}\left(\sin^2\dfrac{p\pi}{2M_x} + \sin^2\dfrac{q\pi}{2M_y}"
                r" + \sin^2\dfrac{r\pi}{2M_z}\right)$",
-        # методы
         "jacobi-m": r"$D\,T^{(i+1)} = f - (L + U)\,T^{(i)}$",
         "jacobi": r"$T^{(i+1)}_{mln} = \dfrac{1}{6}\left(\Sigma^- T^{(i)} + \Sigma^+ T^{(i)}\right)$",
         "seidel-m": r"$(D + L)\,T^{(i+1)} = f - U\,T^{(i)}$",
@@ -554,20 +549,17 @@ def build(path):
         "sor-m": r"$(D + \tau L)\,T^{(i+1)} = \tau f - \left(\tau U + (\tau - 1)\,D\right) T^{(i)}$",
         "sor": r"$T^{(i+1)}_{mln} = (1 - \tau)\,T^{(i)}_{mln} + \dfrac{\tau}{6}\left(\Sigma^- T^{(i+1)}"
                r" + \Sigma^+ T^{(i)}\right)$",
-        # сходимость
         "err": r"$e^{(i+1)} = B\,e^{(i)} \quad\Rightarrow\quad \Vert e^{(i)} \Vert \approx \rho(B)^{\,i}\,"
                r"\Vert e^{(0)} \Vert$",
         "N": r"$N(\varepsilon) \approx \dfrac{\ln \varepsilon^{-1}}{\ln \rho^{-1}}$",
         "rho": r"$\rho_J = 1 - \dfrac{h^2 \lambda_{\min}}{6},\qquad \rho_S = \rho_J^{\,2},"
                r"\qquad \rho_\tau = \tau_{\mathrm{opt}} - 1$",
         "topt": r"$\tau_{\mathrm{opt}} = \dfrac{2}{1 + \sqrt{1 - \rho_J^{\,2}}}$",
-        # точность
         "increment": r"$\Delta U = 0,\qquad U\,|_{z = L_z} = \varphi_6 - 20$",
         "series": r"$U = \sum_{p,\,q} c_{pq}\,\sin\dfrac{p\pi x}{L_x}\,\sin\dfrac{q\pi y}{L_y}\;"
                   r"\dfrac{\sinh k_{pq} z}{\sinh k_{pq} L_z}$",
         "kpq": r"$k_{pq} = \pi\sqrt{(p/L_x)^2 + (q/L_y)^2}$",
         "order": r"$e_h \approx C h^{\,p} \quad\Rightarrow\quad p = \log_2 \dfrac{e_{2h}}{e_h}$",
-        # затухание
         "mode": r"$\dfrac{\sinh k z}{\sinh k L_z} \approx e^{-k d},\qquad k = \sqrt{\alpha^2 + \beta^2}$",
         "kwave": r"$k = 2\pi\sqrt{(m/L_x)^2 + (n/L_y)^2} = %s\ \mathrm{м}^{-1}$" % fmt(decay["wave_k"], 2).replace(",", "{,}"),
     }.items()}
@@ -628,7 +620,6 @@ def build(path):
     picture(s, img_ceiling, M + 0.1, 2.5, 5.8, 4.3)
     X = 6.95
     RW = W - M - X
-    # Справа — обозначения формулы: формула (TeX), под ней пояснение словами.
     same_scale(s, [(F["uv"], X, 2.4, RW, 0.4), (F["cap"], X, 3.22, RW, 0.46),
                    (F["gauss"], X, 4.34, RW, 0.64), (F["wave"], X, 5.38, RW, 0.5)])
     for y, h, caption in ((2.84, 0.28, "Координаты на потолке от 0 до 1 и сила нагрева."),
@@ -940,17 +931,16 @@ def export_pdf(pptx, pdf):
             produced.replace(pdf)
         return "LibreOffice"
     if sys.platform == "win32":
-        import win32com.client   # pip install pywin32
+        import win32com.client
         app = win32com.client.Dispatch("PowerPoint.Application")
         deck = app.Presentations.Open(str(pptx.resolve()), WithWindow=False)
         try:
-            deck.SaveAs(str(pdf.resolve()), 32)   # 32 — ppSaveAsPDF
+            deck.SaveAs(str(pdf.resolve()), 32)
         finally:
             deck.Close()
             app.Quit()
         return "PowerPoint"
     if sys.platform == "darwin" and Path("/Applications/Microsoft PowerPoint.app").exists():
-        # PowerPoint на macOS работает в песочнице: файлы кладём в его контейнер.
         box = Path.home() / "Library/Containers/com.microsoft.Powerpoint/Data/Documents/pde-solver-export"
         box.mkdir(parents=True, exist_ok=True)
         # Копия с уникальным именем, и обращаемся к ней по имени: презентации, открытые
@@ -1000,7 +990,7 @@ def main():
             pages = pdf_pages(pdf)
             if pages and pages != slides:
                 raise RuntimeError(f"в PDF {pages} страниц, а слайдов {slides}")
-        except Exception as error:   # сообщаем и не трогаем прежнюю пару PPTX + PDF
+        except Exception as error:
             keep = OUT / "build"
             keep.mkdir(exist_ok=True)
             shutil.copy(pptx, keep / pptx.name)

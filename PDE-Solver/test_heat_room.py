@@ -10,7 +10,7 @@ from heat_room import (DEFAULT_CEILING, LX, LY, T_BACKGROUND, WALLS, Grid, bound
                        ceiling_temperature, continuous_increment, discrete_exact, increment,
                        junctions, relaxation_sweep, restrict, solve)
 
-GRID = Grid.with_step(0.2)   # 20 × 15 × 13 шагов
+GRID = Grid.with_step(0.2)
 
 
 def pointwise_sweep(T, grid, omega):
@@ -87,8 +87,8 @@ class BoundaryTests(unittest.TestCase):
             expected = (limits[("x", sx)] + limits[("y", sy)] + limits[("z", sz)]) / 3
             vertex = (-1 if sx else 0, -1 if sy else 0, -1 if sz else 0)
             self.assertAlmostEqual(T[vertex], expected, places=12)
-        self.assertEqual(T[0, 0, 5], 17.0)   # ребро x = y = 0
-        self.assertEqual(T[0, 0, 0], 18.0)   # вершина (0, 0, 0)
+        self.assertEqual(T[0, 0, 5], 17.0)
+        self.assertEqual(T[0, 0, 0], 18.0)
 
     def test_junction_table_matches_solver_values(self):
         """Подсказки стенда берут пределы из той же таблицы граней, что и решатель."""
