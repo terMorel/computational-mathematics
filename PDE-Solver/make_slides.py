@@ -1,17 +1,23 @@
-"""Презентация для защиты: python make_slides.py → presentation/PDE-Solver.pptx
+"""Презентация для защиты: python make_slides.py → presentation/PDE-Solver.pptx и .pdf
 
-Использует рисунки из figures/ (make_figures.py, study.py, screenshot.py) и числа из
-results.json. Формулы рендерятся matplotlib (mathtext) в PNG. PDF-версию
-экспортирует PowerPoint (см. README).
+Числа берутся из results.json (study.py), поля — из нового расчёта. Графики для
+слайдов экспортируются отдельно, с крупным шрифтом: подписи должны читаться
+с места при показе на экране. Формулы рендерит matplotlib (mathtext).
+PDF экспортируется через LibreOffice или PowerPoint (export_pdf).
 """
 
+import copy
 import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from PIL import Image
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -19,66 +25,135 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
+from figures import (DEFAULT_PARAMS, DEFAULT_VIEW, ceiling_from_params, ceiling_map_figure,
+                     convergence_figure, depth_figure, fmt, hslice_figure, profile_figure,
+                     scale_for, slices_figure, value_at)
+from heat_room import LZ, WALLS, Grid, solve
+from make_figures import DEMO_PARAMS, DEMO_VIEW, scheme_figure
+
 HERE = Path(__file__).parent
 FIG = HERE / "figures"
 OUT = HERE / "presentation"
-FORMULAS = OUT / "formulas"
-RESULTS = json.loads((HERE / "results.json").read_text())
+BUILD = OUT / "build"            # промежуточные PNG; в git не попадают
+RESULTS = json.loads((HERE / "results.json").read_text(encoding="utf-8"))
 
 FONT = "Arial"
 INK = RGBColor(0x0B, 0x0B, 0x0B)
 INK_2 = RGBColor(0x52, 0x51, 0x4E)
-MUTED = RGBColor(0x89, 0x87, 0x81)
 CARD = RGBColor(0xF4, 0xF3, 0xEF)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 DARK = RGBColor(0x2E, 0x17, 0x20)        # тёмный конец тепловой шкалы
-HEAT = RGBColor(0xEB, 0x68, 0x34)        # оранжевый акцент (середина шкалы)
-BLUE = RGBColor(0x2A, 0x78, 0xD6)        # акцент управления, как в приложении
-SOFT = RGBColor(0xF6, 0xD9, 0xC4)
+LIGHT_ON_DARK = RGBColor(0xE8, 0xDF, 0xD6)
+HEAT = RGBColor(0xEB, 0x68, 0x34)
+BLUE = RGBColor(0x2A, 0x78, 0xD6)
 
 W, H = 13.333, 7.5
-M = 0.6                                   # поля слайда
-
-
-def fmt(value, digits=2):
-    return f"{value:.{digits}f}".replace(".", ",")
+M = 0.6
 
 
 def nbsp(value):
     """Число не отрывается от единицы, а «4 × 3» — от знака умножения."""
-    value = re.sub(r"(\d) (м⁻¹|м|°C|с|раз|итераций)", "\\1\u00a0\\2", value)
+    value = re.sub(r"([\d)]) (м⁻¹|м|°C|с|раз|итерац\w*|%)", "\\1\u00a0\\2", value)
+    value = re.sub(r"\b([xyzA]) = ", "\\1\u00a0=\u00a0", value)          # «z = 1,6 м» целиком
+    value = re.sub(r"\((\d+,\d+); (\d+,\d+)\)", "(\\1;\u00a0\\2)", value)  # координаты точки
     for _ in range(2):   # «4 × 3 × 2,6»: соседние пары перекрываются
         value = re.sub(r"(\d) × (\d)", "\\1\u00a0×\u00a0\\2", value)
     return value
 
 
-# --- Формулы ---------------------------------------------------------------
+# --- Рисунки для слайдов ----------------------------------------------------
+
+def enlarge(fig, factor):
+    """Увеличить все шрифты фигуры Plotly в factor раз."""
+    data = fig.to_dict()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("font", "tickfont", "textfont") and isinstance(value, dict) \
+                        and isinstance(value.get("size"), (int, float)):
+                    value["size"] = value["size"] * factor
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return go.Figure(data)
+
+
+def export(fig, name, width, height, factor=1.35):
+    BUILD.mkdir(parents=True, exist_ok=True)
+    path = BUILD / name
+    enlarge(fig, factor).write_image(path, width=width, height=height, scale=3)
+    return path
+
+
+def untitled(fig, top=12, scale_bar=True):
+    fig.update_layout(title_text="", margin_t=top)
+    if not scale_bar:
+        fig.update_traces(showscale=False, selector=dict(type="heatmap"))
+    return fig
+
 
 plt.rcParams.update({"mathtext.fontset": "custom", "mathtext.rm": "Arial",
                      "mathtext.it": "Arial:italic", "mathtext.bf": "Arial:bold",
                      "font.family": "Arial"})
 
 
-def formula(name, tex, size=30, color="#0b0b0b"):
-    FORMULAS.mkdir(parents=True, exist_ok=True)
-    path = FORMULAS / f"{name}.png"
+def formula(name, tex, size=30):
+    BUILD.mkdir(parents=True, exist_ok=True)
+    path = BUILD / f"{name}.png"
     fig = plt.figure(figsize=(0.01, 0.01))
-    fig.text(0, 0, tex, fontsize=size, color=color)
+    fig.text(0, 0, tex, fontsize=size, color="#0b0b0b")
     fig.savefig(path, dpi=220, transparent=True, bbox_inches="tight", pad_inches=0.04)
     plt.close(fig)
     return path
 
 
-# --- Примитивы слайда -------------------------------------------------------
+def stencil_picture():
+    """Семиточечный шаблон: центр, соседи с новыми и прежними значениями."""
+    path = BUILD / "stencil.png"
+    fig, ax = plt.subplots(figsize=(6.2, 5.6), dpi=220)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    d = (0.55, 0.38)                     # направление оси j на рисунке (перспектива)
+    nodes = {  # подпись: (x, y узла, новое ли значение, x и y подписи, выравнивание)
+        "i−1": (-1.6, 0.0, True, -2.35, 0.0, "center"),
+        "i+1": (1.6, 0.0, False, 2.35, 0.0, "center"),
+        "j−1": (-1.6 * d[0], -1.6 * d[1], True, -1.55, -1.05, "center"),
+        "j+1": (1.6 * d[0], 1.6 * d[1], False, 1.55, 1.05, "center"),
+        "k−1": (0.0, -1.6, True, 0.45, -1.6, "left"),
+        "k+1": (0.0, 1.6, False, 0.45, 1.6, "left"),
+    }
+    for x, y, *_ in nodes.values():
+        ax.plot([0, x], [0, y], color="#898781", lw=2.5, zorder=1)
+    for label, (x, y, new, tx, ty, ha) in nodes.items():
+        ax.scatter([x], [y], s=900, zorder=3, color="#2a78d6" if new else "white",
+                   edgecolors="#2a78d6", linewidths=3)
+        ax.text(tx, ty, label, fontsize=22, ha=ha, va="center", color="#0b0b0b")
+    ax.scatter([0], [0], s=1300, zorder=4, color="#eb6834", edgecolors="#0b0b0b", linewidths=2)
+    ax.text(0.38, -0.5, "(i, j, k)", fontsize=22, ha="left", va="center", color="#0b0b0b")
+    ax.scatter([-2.3], [-2.55], s=420, color="#2a78d6", edgecolors="#2a78d6", linewidths=3)
+    ax.text(-2.0, -2.55, "уже пересчитаны (s + 1)", fontsize=19, va="center")
+    ax.scatter([-2.3], [-3.15], s=420, color="white", edgecolors="#2a78d6", linewidths=3)
+    ax.text(-2.0, -3.15, "прежние значения (s)", fontsize=19, va="center")
+    ax.set_xlim(-2.8, 2.8)
+    ax.set_ylim(-3.5, 2.3)
+    fig.savefig(path, bbox_inches="tight", pad_inches=0.05, transparent=True)
+    plt.close(fig)
+    return path
+
+
+# --- Примитивы слайда ---------------------------------------------------------
 
 def background(slide, color):
-    fill = slide.background.fill
-    fill.solid()
-    fill.fore_color.rgb = color
+    slide.background.fill.solid()
+    slide.background.fill.fore_color.rgb = color
 
 
-def text(slide, x, y, w, h, runs, size=16, color=INK, bold=False, align=PP_ALIGN.LEFT,
-         anchor=MSO_ANCHOR.TOP, spacing=1.1, name=None):
+def text(slide, x, y, w, h, runs, size=18, color=INK, bold=False, anchor=MSO_ANCHOR.TOP,
+         spacing=1.1, after=0, name=None):
     """runs: строка или список абзацев; абзац — строка или список (текст, {опции})."""
     box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     if name:
@@ -88,34 +163,27 @@ def text(slide, x, y, w, h, runs, size=16, color=INK, bold=False, align=PP_ALIGN
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     tf.vertical_anchor = anchor
     paragraphs = [runs] if isinstance(runs, str) else runs
-    paragraphs = [nbsp(p) if isinstance(p, str) else [(nbsp(t), o) for t, o in p] for p in paragraphs]
     for i, para in enumerate(paragraphs):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.alignment = align
         p.line_spacing = spacing
-        parts = [(para, {})] if isinstance(para, str) else para
-        for part, opts in parts:
+        p.space_after = Pt(after)
+        for part, opts in ([(para, {})] if isinstance(para, str) else para):
             r = p.add_run()
-            r.text = part
-            f = r.font
-            f.name = FONT
-            f.size = Pt(opts.get("size", size))
-            f.bold = opts.get("bold", bold)
-            f.italic = opts.get("italic", False)
-            f.color.rgb = opts.get("color", color)
-        if isinstance(para, list) and para and para[0][1].get("space_after"):
-            p.space_after = Pt(para[0][1]["space_after"])
+            r.text = nbsp(part)
+            r.font.name = FONT
+            r.font.size = Pt(opts.get("size", size))
+            r.font.bold = opts.get("bold", bold)
+            r.font.color.rgb = opts.get("color", color)
     return box
 
 
-def title(slide, value, color=INK):
-    text(slide, M, 0.42, W - 2 * M, 0.9, value, size=32, bold=True, color=color,
-         anchor=MSO_ANCHOR.TOP, name="Title")
+def title(slide, value, color=INK, size=28):
+    text(slide, M, 0.4, W - 2 * M, 1.0, value, size=size, bold=True, color=color, name="Title")
 
 
-def card(slide, x, y, w, h, color=CARD, radius=0.04):
+def card(slide, x, y, w, h, color=CARD):
     shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-    shape.adjustments[0] = radius
+    shape.adjustments[0] = 0.04
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
     shape.line.fill.background()
@@ -124,66 +192,33 @@ def card(slide, x, y, w, h, color=CARD, radius=0.04):
 
 
 def picture(slide, path, x, y, w, h, align="center"):
-    """Вписывает картинку в прямоугольник с сохранением пропорций."""
     iw, ih = Image.open(path).size
-    scale = min(w / iw, h / ih)
-    pw, ph = iw * scale, ih * scale
+    k = min(w / iw, h / ih)
+    pw, ph = iw * k, ih * k
     px = x + (w - pw) / 2 if align == "center" else x
-    py = y + (h - ph) / 2
-    return slide.shapes.add_picture(str(path), Inches(px), Inches(py), Inches(pw), Inches(ph))
+    return slide.shapes.add_picture(str(path), Inches(px), Inches(y + (h - ph) / 2), Inches(pw), Inches(ph))
 
 
-def framed(slide, path, x, y, w, h, pad=0.12, caption=None):
-    card(slide, x, y, w, h)
-    inner_h = h - 2 * pad - (0.42 if caption else 0)
-    picture(slide, path, x + pad, y + pad, w - 2 * pad, inner_h)
-    if caption:
-        text(slide, x + 0.2, y + h - 0.46, w - 0.4, 0.4, caption, size=14, color=INK_2)
-
-
-def badge(slide, x, y, label, color=HEAT, d=0.52, size=20):
-    dot = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(x), Inches(y), Inches(d), Inches(d))
-    dot.fill.solid()
-    dot.fill.fore_color.rgb = color
-    dot.line.fill.background()
-    dot.shadow.inherit = False
-    tf = dot.text_frame
-    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    r = p.add_run()
-    r.text = label
-    r.font.name, r.font.size, r.font.bold, r.font.color.rgb = FONT, Pt(size), True, WHITE
-
-
-def stat(slide, x, y, w, value, label, color=INK):
-    text(slide, x, y, w, 0.75, value, size=40, bold=True, color=color)
-    text(slide, x, y + 0.78, w, 0.6, label, size=15, color=INK_2)
-
-
-def table(slide, x, y, w, rows, widths, size=15, header_fill=DARK):
+def table(slide, x, y, w, rows, widths, size=18, row_h=0.52):
     shape = slide.shapes.add_table(len(rows), len(rows[0]), Inches(x), Inches(y), Inches(w),
-                                   Inches(0.46 * len(rows)))
+                                   Inches(row_h * len(rows)))
     tbl = shape.table
     for j, cw in enumerate(widths):
         tbl.columns[j].width = Inches(cw)
     for i, row in enumerate(rows):
-        tbl.rows[i].height = Inches(0.46)
+        tbl.rows[i].height = Inches(row_h)
         for j, value in enumerate(row):
             cell = tbl.cell(i, j)
             cell.fill.solid()
-            cell.fill.fore_color.rgb = header_fill if i == 0 else (WHITE if i % 2 else CARD)
+            cell.fill.fore_color.rgb = DARK if i == 0 else (WHITE if i % 2 else CARD)
             cell.margin_left = cell.margin_right = Inches(0.1)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            tf = cell.text_frame
-            tf.paragraphs[0].text = ""
-            r = tf.paragraphs[0].add_run()
-            r.text = str(value)
-            r.font.name, r.font.size = FONT, Pt(size)
-            r.font.bold = i == 0
+            p = cell.text_frame.paragraphs[0]
+            p.alignment = PP_ALIGN.LEFT if j == 0 else PP_ALIGN.RIGHT
+            r = p.add_run()
+            r.text = nbsp(str(value))
+            r.font.name, r.font.size, r.font.bold = FONT, Pt(size), i == 0
             r.font.color.rgb = WHITE if i == 0 else INK
-            tf.paragraphs[0].alignment = PP_ALIGN.LEFT if j == 0 else PP_ALIGN.RIGHT
     return tbl
 
 
@@ -191,35 +226,55 @@ def notes(slide, value):
     slide.notes_slide.notes_text_frame.text = value
 
 
-# --- Слайды ----------------------------------------------------------------
+# --- Слайды -----------------------------------------------------------------
 
 def build():
     r = RESULTS
-    methods = {m["method"]: m for m in r["methods"]}
-    jac, sei, sor = methods["Якоби"], methods["Зейдель"], methods["SOR"]
-    grids = r["grid_convergence"]
+    jac, sei, sor = r["methods"]
+    gains = r["gains"]
+    inc = r["increment_convergence"]
+    full = r["full_field_convergence"]
+    checks, zero = r["checks"], r["zero_amplitude"]
     decay = r["depth_decay"]
-    names = [k for k in decay if isinstance(decay[k], dict)]
-    spot1, spot2, wave = (decay[n] for n in names)
-    checks = r["checks"]
-    g = r["grid"]
+    spot1, spot2, wave = (decay[k] for k in decay if isinstance(decay[k], dict))
+    timing = r["timing"]
 
-    f_ceiling = formula("ceiling", r"$T_{\mathrm{пот}} = 20 + A\,\sin^2\!\pi u\,\sin^2\!\pi v\,"
-                                   r"\left(0{,}12 + 0{,}65\,G_1 + 0{,}30\,G_2 + 0{,}15\,R\right)$", 30)
-    f_gauss = formula("gauss", r"$G_j = \exp\!\left(-\frac{1}{2}\left[\left(\frac{u-u_j}{\sigma_{xj}}\right)^2"
-                               r" + \left(\frac{v-v_j}{\sigma_{yj}}\right)^2\right]\right),\quad"
-                               r"R = \frac{1 + \sin 2\pi m u\,\cos 2\pi n v}{2}$", 26)
-    f_scheme = formula("scheme", r"$\frac{T_{i-1,j,k} - 2T_{ijk} + T_{i+1,j,k}}{h_x^2} + "
-                                 r"\frac{T_{i,j-1,k} - 2T_{ijk} + T_{i,j+1,k}}{h_y^2} + "
-                                 r"\frac{T_{i,j,k-1} - 2T_{ijk} + T_{i,j,k+1}}{h_z^2} = 0$", 26)
-    f_sor = formula("sor", r"$T^{s+1}_{ijk} = (1-\omega)\,T^{s}_{ijk} + \omega\,"
-                           r"\frac{c_x\,(T^{s+1}_{i-1} + T^{s}_{i+1}) + c_y\,(T^{s+1}_{j-1} + T^{s}_{j+1})"
-                           r" + c_z\,(T^{s+1}_{k-1} + T^{s}_{k+1})}{2\,(c_x + c_y + c_z)},\quad c_x = h_x^{-2}$", 24)
-    f_omega = formula("omega", r"$\omega_{\mathrm{опт}} = \frac{2}{1 + \sqrt{1 - \rho_J^2}},\qquad"
-                               r"\rho_J = \frac{c_x \cos\frac{\pi}{N_x} + c_y \cos\frac{\pi}{N_y} + "
-                               r"c_z \cos\frac{\pi}{N_z}}{c_x + c_y + c_z}$", 24)
-    f_decay = formula("decay", r"$\theta_{pq}(d) \propto \frac{\sinh k_{pq}(L_z - d)}{\sinh k_{pq} L_z}"
-                               r"\approx e^{-k_{pq} d},\qquad k_{pq} = \pi\sqrt{(p/L_x)^2 + (q/L_y)^2}$", 24)
+    print("Поля и рисунки для слайдов…")
+    grid = Grid.with_step(0.1)
+    base = solve(grid, ceiling_from_params(DEFAULT_PARAMS), tol=1e-8)
+    demo = solve(grid, ceiling_from_params(DEMO_PARAMS), tol=1e-8, start=base.T)
+    scale = scale_for(DEFAULT_PARAMS)
+    both = (scale[0], max(scale[1], scale_for(DEMO_PARAMS)[1]))
+    xp, yp = DEMO_VIEW["profile"]
+    t_slice = value_at(demo.T, grid, xp, yp, DEMO_VIEW["z"])
+    t_top = value_at(demo.T, grid, xp, yp, LZ)
+
+    img_scheme = export(scheme_figure(DEFAULT_PARAMS, scale), "scheme.png", 820, 600, 1.3)
+    solutions = [solve(grid, method=m, tol=r["tolerance"]) for m in ("jacobi", "seidel", "sor")]
+    conv = untitled(convergence_figure(solutions, r["tolerance"]), top=60)
+    # Подписи у концов линий на узком рисунке налезают друг на друга; числа — в таблице.
+    conv.layout.annotations = [a for a in conv.layout.annotations if "<b>" not in a.text]
+    img_conv = export(conv, "convergence.png", 660, 470, 1.3)
+    from study import depth_decay   # тот же расчёт, что и в отчёте
+    depths, curves, summary = depth_decay(Grid.with_step(0.05))
+    img_decay = export(untitled(depth_figure(depths, curves, summary), top=70), "depth.png", 780, 450, 1.3)
+    img_slices = export(slices_figure(base.T, grid, [2.5, 2.2, 1.8, 1.3], scale, cols=2),
+                        "slices.png", 700, 600, 1.3)
+    maps = {}
+    for key, params, view, sol in [("before", DEFAULT_PARAMS, DEFAULT_VIEW, base),
+                                   ("after", DEMO_PARAMS, DEMO_VIEW, demo)]:
+        last = key == "after"
+        maps[key + "-ceiling"] = export(untitled(ceiling_map_figure(params, 0, view, both), scale_bar=last),
+                                        f"{key}-ceiling.png", 470 if last else 400, 300, 1.45)
+        maps[key + "-hslice"] = export(untitled(hslice_figure(sol.T, grid, view, both), scale_bar=last),
+                                       f"{key}-hslice.png", 470 if last else 400, 300, 1.45)
+    img_profile = export(untitled(profile_figure(demo.T, grid, DEMO_VIEW, both)), "profile.png", 380, 470, 1.45)
+    img_stencil = stencil_picture()
+    f_ceiling1 = formula("ceiling1", r"$T_{\mathrm{пот}} = 20 + A\,\sin^2\!\pi u\,\sin^2\!\pi v\;\cdot$", 30)
+    f_ceiling2 = formula("ceiling2", r"$\cdot\,(0{,}12 + 0{,}65\,G_1 + 0{,}30\,G_2 + 0{,}15\,R)$", 30)
+    f_sor1 = formula("sor1", r"$T^{s+1}_{ijk} = (1-\omega)\,T^{s}_{ijk} + \omega\,\tilde T_{ijk}$", 34)
+    f_sor2 = formula("sor2", r"$\tilde T_{ijk} = \frac{\sum_6\, c\, T_{\mathrm{сосед}}}{\sum_6\, c},"
+                             r"\qquad c = h^{-2}\ \mathrm{по\ оси\ соседа}$", 30)
 
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(W), Inches(H)
@@ -231,197 +286,238 @@ def build():
     background(s, DARK)
     text(s, M, 0.9, 5.8, 0.4, "ВЫЧИСЛИТЕЛЬНАЯ МАТЕМАТИКА · PDE-SOLVER", size=14, bold=True,
          color=RGBColor(0xF6, 0xA3, 0x52))
-    text(s, M, 1.45, 5.6, 2.8, "Как рисунок температуры на потолке меняется с глубиной?",
+    text(s, M, 1.45, 5.7, 2.8, "Как рисунок температуры на потолке меняется с глубиной?",
          size=40, bold=True, color=WHITE, spacing=1.0, name="Title")
-    text(s, M, 4.45, 5.4, 1.4, ["Стационарное поле температуры в комнате 4 × 3 × 2,6 м:",
-                                "уравнение Лапласа, схема «крест», метод верхней релаксации"],
-         size=18, color=RGBColor(0xE8, 0xDF, 0xD6))
-    text(s, M, 6.45, 5.6, 0.4, "Интерактивный стенд на Dash и Plotly", size=14,
-         color=RGBColor(0xB9, 0xA9, 0xA8))
+    text(s, M, 4.4, 5.5, 1.6, "Стационарное поле в комнате 4 × 3 × 2,6 м: стены 16–24 °C, пол 20 °C, "
+                              "потолок нагрет двумя пятнами и волнами", size=19, color=LIGHT_ON_DARK)
+    text(s, M, 6.3, 5.7, 0.5, "Уравнение Лапласа · схема «крест» · метод верхней релаксации",
+         size=15, color=RGBColor(0xB9, 0xA9, 0xA8))
     card(s, 6.45, 1.95, 6.3, 3.62, color=RGBColor(0xFB, 0xF7, 0xF0))
     picture(s, FIG / "app.png", 6.55, 2.05, 6.1, 3.42)
-    notes(s, "Вопрос доклада: что остаётся от сложного рисунка нагрева потолка на разной глубине "
-             "комнаты. Справа — работающее приложение, которое я покажу вживую.")
+    notes(s, "Нужно найти стационарное поле температуры в комнате и проследить, как рисунок нагрева "
+             "потолка ослабевает с удалением от него. Справа — стенд, который покажу в конце.")
 
-    # 2. Постановка
+    # 2. Условия
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    title(s, "Постановка: стены и пол 20 °C, потолок с рисунком")
-    framed(s, FIG / "scheme.png", M, 1.45, 5.6, 5.45)
-    text(s, 6.6, 1.5, 6.1, 0.5, "Внутри комнаты  ΔT = 0", size=22, bold=True)
-    text(s, 6.6, 2.05, 6.1, 0.5, "Нормированные координаты u = x / Lx, v = y / Ly", size=16, color=INK_2)
-    picture(s, f_ceiling, 6.6, 2.6, 6.1, 0.75, align="left")
-    picture(s, f_gauss, 6.6, 3.45, 6.1, 0.85, align="left")
-    card(s, 6.6, 4.6, 6.1, 2.3)
-    text(s, 6.85, 4.78, 5.7, 2.0, [
-        [("По умолчанию", {"bold": True, "size": 17, "space_after": 6})],
-        "A = 60 °C, волны m = n = 2",
-        "Пятно 1: центр (0,33; 0,55), ширины 0,16 и 0,22",
-        "Пятно 2: центр (0,72; 0,35), ширины 0,13 и 0,17",
-        "Множитель sin²πu·sin²πv сводит потолок к 20 °C у стен",
-    ], size=16, spacing=1.2)
-    notes(s, "Задача Дирихле для уравнения Лапласа. Граничные данные непрерывны: у стен потолок плавно "
-             "переходит в 20 °C.")
+    title(s, "Условия: стены и пол постоянны, потолок нагрет")
+    card(s, M, 1.35, 6.9, 5.55)
+    picture(s, img_scheme, M + 0.1, 1.45, 6.7, 5.35)
+    text(s, 7.8, 1.4, 4.95, 0.45, "Внутри ΔT = 0, источников нет", size=19, bold=True)
+    picture(s, f_ceiling1, 7.8, 2.0, 4.95, 0.5, align="left")
+    picture(s, f_ceiling2, 7.8, 2.55, 4.95, 0.5, align="left")
+    text(s, 7.8, 3.2, 4.95, 0.75, "A = 60 °C, волны m = n = 2; у края потолка T → 20 °C.",
+         size=17, color=INK_2)
+    text(s, 7.8, 4.0, 4.95, 0.45, "Стыки граней", size=19, bold=True)
+    text(s, 7.8, 4.5, 4.95, 2.4, [
+        "Ребро — среднее двух граней: x = y = 0 даёт (16 + 18) / 2 = 17 °C.",
+        "Вершина — среднее трёх: (16 + 18 + 20) / 3 = 18 °C.",
+        "В уравнения внутренних узлов рёбра и вершины не входят."], size=17, color=INK_2, after=8)
+    notes(s, "Данные Дирихле заданы на открытых гранях. На ребре пределы соседних граней различаются, "
+             "и для решения внутри значения на рёбрах не нужны. В сетке принято правило средних. "
+             "Соседи внутреннего узла в семиточечном шаблоне меняют один индекс, поэтому лежат только на "
+             "открытых гранях; рёбра и вершины нужны лишь для рисунков. Тест подставляет на них 1000 °C — "
+             "решение не меняется.")
 
     # 3. Метод
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    title(s, "Метод: семиточечный «крест» и верхняя релаксация")
-    text(s, M, 1.45, 7.6, 0.4, "Схема второго порядка (лекция 14, Лобанов и Петров)",
-         size=16, color=INK_2)
-    picture(s, f_scheme, M, 1.95, 7.7, 0.75, align="left")
-    text(s, M, 3.0, 7.6, 0.4, "SOR: обход узлов как в методе Зейделя, ω — параметр релаксации",
-         size=16, color=INK_2)
-    picture(s, f_sor, M, 3.5, 7.7, 0.75, align="left")
-    text(s, M, 4.55, 7.6, 0.4, "Оптимальный ω — по спектральному радиусу метода Якоби", size=16, color=INK_2)
-    picture(s, f_omega, M, 5.05, 7.7, 0.85, align="left")
-    text(s, M, 6.2, 7.6, 0.7, "Узлы одной плоскости i + j + k = const обновляются вместе: их соседи лежат "
-                               "на соседних плоскостях, поэтому порядок совпадает с поточечным обходом.",
-         size=14, color=INK_2)
-    card(s, 8.75, 1.45, 3.98, 5.45)
-    stat(s, 9.05, 1.7, 3.5, f"{g['nx']} × {g['ny']} × {g['nz']}", "шагов сетки, h = 0,1 м")
-    stat(s, 9.05, 3.35, 3.5, f"{g['unknowns']:,}".replace(",", " "), "неизвестных в системе")
-    stat(s, 9.05, 5.0, 3.5, fmt(g["optimal_omega"], 3), f"оптимальный ω; ρ Якоби = {fmt(g['jacobi_radius'], 4)}",
-         color=HEAT)
-    notes(s, "Метод Зейделя — частный случай SOR при ω = 1. Оптимальный параметр берём из теоремы Янга.")
+    title(s, "Схема «крест»: узел пересчитывается по шести соседям")
+    picture(s, img_stencil, M, 1.35, 5.6, 5.6)
+    picture(s, f_sor1, 6.5, 1.55, 6.25, 0.6, align="left")
+    picture(s, f_sor2, 6.5, 2.3, 6.25, 0.9, align="left")
+    text(s, 6.5, 3.5, 6.2, 3.4, [
+        "Соседи с меньшим индексом уже пересчитаны на этой итерации, с большим — ещё нет.",
+        f"ω = 1 — метод Зейделя; для сетки {r['grid']['nx']} × {r['grid']['ny']} × {r['grid']['nz']} "
+        f"оптимум ω = {fmt(r['grid']['optimal_omega'], 3)}.",
+        "Метод Якоби берёт всех соседей с прошлой итерации.",
+        "Остановка: ‖b − Av‖∞ / ‖b‖∞ ≤ 10⁻⁸, старт — 20 °C внутри."], size=19, color=INK_2, after=10)
+    notes(s, "Оптимальный ω найден по теореме Янга через спектральный радиус метода Якоби, вывод — в README. "
+             "Узлы одной плоскости i + j + k = const обновляются вместе: их соседи лежат на соседних "
+             "плоскостях, поэтому порядок совпадает с поточечным обходом из учебника (§14.2.5).")
 
     # 4. Сходимость
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    ratio = jac["iterations"] / sor["iterations"]
-    title(s, f"SOR сходится в {ratio:.0f} раз быстрее метода Якоби")
-    framed(s, FIG / "convergence.png", M, 1.95, 7.0, 3.95)
-    text(s, 7.95, 1.45, 4.8, 0.5, f"Порог невязки 10⁻⁸, сетка {g['nx']} × {g['ny']} × {g['nz']}",
-         size=15, color=INK_2)
-    table(s, 7.95, 1.95, 4.78, [
-        ["Метод", "Итераций", "Оценка", "Время, с"],
-        ["Якоби", jac["iterations"], jac["predicted"], fmt(jac["seconds"], 2)],
-        ["Зейдель", sei["iterations"], sei["predicted"], fmt(sei["seconds"], 2)],
-        ["SOR", sor["iterations"], sor["predicted"], fmt(sor["seconds"], 2)],
-    ], [1.3, 1.3, 1.08, 1.1])
-    text(s, 7.95, 4.05, 4.78, 2.9, [
-        [("Зейдель вдвое быстрее Якоби: ", {"bold": True}), ("ρ(Зейдель) = ρ(Якоби)², как в теории.", {})],
-        [("SOR: ", {"bold": True}), (f"число итераций растёт как N, а не N²; при ω = 1,5 нужно "
-                                       f"{next(o['iterations'] for o in r['omega_scan'] if o['omega'] == 1.5)}"
-                                       f" итераций, при ω = 1,95 — "
-                                       f"{next(o['iterations'] for o in r['omega_scan'] if o['omega'] == 1.95)}.", {})],
-        [("Оценка: ", {"bold": True}), ("ln(1/ε) / ln(1/ρ) по спектральному радиусу.", {})],
-    ], size=15, spacing=1.15)
-    notes(s, "Все три метода сходятся к одному решению: отклонение от прямого решения методом Фурье "
-             "меньше 10⁻⁴ °C.")
+    title(s, f"Итераций до невязки 10⁻⁸: Якоби {jac['iterations']}, SOR {sor['iterations']}")
+    card(s, M, 1.45, 7.3, 5.4)
+    picture(s, img_conv, M + 0.1, 1.55, 7.1, 5.2)
+    table(s, 8.2, 1.55, 4.55, [["Метод", "Итераций", "Время, с"],
+                               ["Якоби", jac["iterations"], fmt(jac["seconds"], 2)],
+                               ["Зейдель", sei["iterations"], fmt(sei["seconds"], 2)],
+                               ["SOR", sor["iterations"], fmt(sor["seconds"], 2)]], [1.55, 1.5, 1.5])
+    text(s, 8.2, 3.85, 4.55, 3.0, [
+        f"Время — медиана {timing['repeats']} запусков, Apple M5 Pro, Python {timing['python']}, "
+        f"numpy {timing['numpy']}.",
+        f"SOR быстрее Якоби в {fmt(gains['iterations_jacobi_to_sor'], 0)} раз по итерациям и в "
+        f"{fmt(gains['time_jacobi_to_sor'], 1)} раза по времени: проход SOR идёт по 91 плоскости, "
+        "проход Якоби — одно векторное действие."], size=16, color=INK_2, after=8)
+    notes(s, f"Сетка 40 × 30 × 26, общий старт 20 °C. Оценка по спектральному радиусу: Якоби {jac['predicted']}, "
+             f"Зейдель {sei['predicted']}, SOR {sor['predicted']} итераций. Подбор ω: минимум итераций около 1,81–1,85. "
+             f"Зейдель быстрее Якоби в {fmt(gains['iterations_jacobi_to_seidel'], 2)} раза по итерациям: ρ(Зейдель) = ρ(Якоби)².")
 
-    # 5. Проверки
+    # 5. Проверка точности
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    order = grids[-1]["order"]
-    title(s, "Проверки: границы точны, второй порядок")
-    rows = [["Шаг h, м", "Сетка", "Ошибка, °C", "Разность с грубой, °C", "Порядок"]]
-    for row in grids:
-        rows.append([fmt(row["h"], 2), row["grid"], fmt(row["max_error_vs_fourier"], 4),
-                     fmt(row["max_diff_vs_coarser"], 4) if "max_diff_vs_coarser" in row else "—",
-                     fmt(row["order"], 2) if "order" in row else "—"])
-    table(s, M, 1.55, 7.6, rows, [1.25, 1.65, 1.45, 2.15, 1.1])
-    text(s, M, 3.6, 7.6, 1.5, [
-        "Ошибка — максимум отклонения от решения дифференциальной задачи рядом Фурье "
-        "(метод собственных функций).",
-        "При вдвое меньшем шаге ошибка падает примерно в 4 раза — второй порядок схемы.",
-    ], size=15, color=INK_2, spacing=1.2)
-    card(s, M, 5.3, 7.6, 1.6)
-    text(s, M + 0.25, 5.45, 7.1, 1.4, [
-        [("Сеточный принцип максимума: ", {"bold": True}),
-         (f"внутри {fmt(checks['interior_min'], 2)} … {fmt(checks['interior_max'], 1)} °C, "
-          f"потолок до {fmt(checks['ceiling_max'], 1)} °C.", {})],
-        [("Вложенные сетки: ", {"bold": True}),
-         ("значения в общих узлах h = 0,1 и 0,05 м различаются меньше чем на "
-          f"{fmt(grids[-1]['max_diff_vs_coarser'], 3)} °C.", {})],
-    ], size=15, spacing=1.2)
-    card(s, 8.75, 1.55, 3.98, 5.35)
-    stat(s, 9.05, 1.8, 3.5, f"{checks['walls_and_floor_max_dev']:.0f} °C", "отклонение от 20 °C на полу и стенах")
-    stat(s, 9.05, 3.5, 3.5, f"{checks['ceiling_max_dev']:.0f} °C", "отклонение от формулы на потолке")
-    stat(s, 9.05, 5.2, 3.5, fmt(order, 2), "порядок сходимости по сетке (теория — 2)", color=HEAT)
-    notes(s, "Граничные значения записаны в сеточную функцию явно и не меняются итерациями.")
+    title(s, "Проверка: шаг вдвое меньше — ошибка в 4 раза меньше")
+    table(s, M, 1.5, 7.0, [["Шаг h, м", "Сетка", "Ошибка, °C", "Порядок"]] +
+          [[fmt(row["h"], 2), row["grid"], fmt(row["max_error"], 4 if row["max_error"] < 0.1 else 3),
+            fmt(row["order"], 2) if "order" in row else "—"] for row in inc], [1.4, 2.4, 1.7, 1.5])
+    text(s, M, 3.75, 7.0, 3.0, [
+        "Ошибка — максимум по узлам для добавки от нагрева: T(A) − T(A = 0). Её данные гладкие, "
+        "эталон — ряд Фурье.",
+        f"Полное поле на скачках у рёбер точнее не сравнить; в узлах дальше 0,5 м от граней разности "
+        f"вложенных сеток {fmt(full['max_diffs'][0], 3)} и {fmt(full['max_diffs'][1], 4)} °C, порядок "
+        f"{fmt(full['order'], 2)}."], size=16, color=INK_2, after=10)
+    card(s, 8.0, 1.5, 4.73, 4.1)
+    text(s, 8.3, 1.75, 4.2, 5.0, [
+        [("Граница", {"bold": True, "color": INK, "size": 19})],
+        "Грани, рёбра и вершины — отклонение 0 °C.",
+        [("Принцип максимума", {"bold": True, "color": INK, "size": 19})],
+        f"Внутри {fmt(checks['interior_min'], 2)}…{fmt(checks['interior_max'], 2)} °C, на границе "
+        f"{fmt(checks['boundary_min'], 0)}…{fmt(checks['boundary_max'], 2)} °C.",
+        [("A = 0", {"bold": True, "color": INK, "size": 19})],
+        f"Потолок 20 °C, внутри {fmt(zero['interior_min'], 1)}…{fmt(zero['interior_max'], 1)} °C: "
+        "поле создают стены."], size=16, color=INK_2, after=6)
+    notes(s, "Точное решение сеточной системы получено разделением переменных для всех шести граней и совпадает "
+             "с независимо собранной матрицей до 10⁻¹³. SOR отличается от него на 6·10⁻⁷ °C при пороге 10⁻⁸.")
 
-    # 6. Приложение
+    # 6. Срезы
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    title(s, "Четыре связанных вида на общей шкале °C")
-    framed(s, FIG / "room-3d.png", M, 1.45, 6.4, 5.45, caption="3D: потолок, два среза и линия профиля")
-    framed(s, FIG / "ceiling-map.png", 7.2, 1.45, 5.53, 2.7, pad=0.08,
-           caption="Карта потолка: маркер пятна — джойстик")
-    framed(s, FIG / "vslice.png", 7.2, 4.3, 3.4, 2.6, pad=0.08, caption="Вертикальный срез")
-    framed(s, FIG / "profile.png", 10.75, 4.3, 1.98, 2.6, pad=0.08, caption="Профиль T(z)")
-    notes(s, "Карта потолка — джойстик пятна; щелчок выбирает вертикаль профиля. Срезы двигаются "
-             "одновременно в 3D и на 2D-картах, поле при этом не пересчитывается.")
+    title(s, "Срезы на одной шкале: с глубиной пятна расплываются")
+    card(s, M, 1.35, 8.6, 5.55)
+    picture(s, img_slices, M + 0.1, 1.42, 8.4, 5.4)
+    text(s, 9.55, 1.6, 3.2, 0.5, "Максимум на срезе", size=19, bold=True)
+    peaks = []
+    for z in (2.5, 2.2, 1.8, 1.3):
+        k = round(z / grid.steps[2])
+        peaks.append(f"глубина {fmt(LZ - z, 1)} м — {fmt(base.T[1:-1, 1:-1, k].max(), 1)} °C")
+    text(s, 9.55, 2.15, 3.2, 2.4, peaks, size=18, color=INK_2, after=6)
+    text(s, 9.55, 4.6, 3.2, 2.2, "На глубине 1,3 м поле лежит в пределах стен 16–24 °C: рисунок потолка "
+                                 "почти не виден.", size=16, color=INK_2)
+    notes(s, "Голубой край слева на каждом срезе — холодная стена x = 0 (16 °C). Цвет и шкала те же, что в стенде.")
 
-    # 7. Ответ на вопрос
+    # 7. Затухание
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    title(s, f"Мелкий узор гаснет за {fmt(wave['depth_10'], 1)} м, пятна видны до "
-             f"{fmt(spot1['depth_10'], 1)} м")
-    framed(s, FIG / "slices-grid.png", M, 1.45, 6.2, 5.45)
-    framed(s, FIG / "depth-decay.png", 7.0, 1.45, 5.73, 3.45, pad=0.08)
-    picture(s, f_decay, 7.05, 5.1, 5.6, 0.62, align="left")
-    text(s, 7.05, 5.9, 5.65, 1.0, [
-        f"Узор m = n = 2: k ≈ {fmt(decay['wave_k'], 1)} м⁻¹, 10 % на глубине {fmt(decay['wave_depth_10_theory'], 2)} м "
-        f"по теории и {fmt(wave['depth_10'], 2)} м в расчёте.",
-    ], size=15, color=INK_2, spacing=1.15)
-    notes(s, "Каждая гармоника потолка затухает как sinh(k(Lz − d))/sinh(kLz). Чем мельче рисунок, "
-             "тем больше k и тем быстрее он исчезает. Широкие пятна несут низкие гармоники и проникают глубже.")
+    title(s, f"Глубина 10 %: узор {fmt(wave['tenth']['depth'], 2)} м, пятна "
+             f"{fmt(spot2['tenth']['depth'], 2)} и {fmt(spot1['tenth']['depth'], 2)} м")
+    card(s, M, 1.35, 9.0, 5.55)
+    picture(s, img_decay, M + 0.1, 1.45, 8.8, 5.35)
+    text(s, 9.95, 1.5, 2.8, 5.3, [
+        "Компонента — добавка T(A) − T(A = 0) от одного слагаемого; у волн — только осциллирующая часть.",
+        "Доля — максимум |компоненты| на срезе, делённый на максимум на потолке.",
+        "Точки — интерполяция между слоями сетки 0,05 м.",
+        f"Пунктир — оценка для одной гармоники k = {fmt(decay['wave_k'], 2)} м⁻¹."],
+         size=15, color=INK_2, after=8)
+    notes(s, f"Амплитуды на потолке: пятно 1 — {fmt(spot1['ceiling_amplitude'], 1)} °C, пятно 2 — "
+             f"{fmt(spot2['ceiling_amplitude'], 1)} °C, волны — {fmt(wave['ceiling_amplitude'], 1)} °C. "
+             f"Для гармоники sinh k(Lz − d)/sinh kLz даёт 10 % на {fmt(decay['wave_tenth_estimate'], 2)} м; "
+             "пятна состоят из многих низких гармоник и одной экспонентой не описываются.")
 
     # 8. Живой показ
     s = prs.slides.add_slide(blank)
     background(s, WHITE)
-    title(s, "Живой показ: четыре действия на стенде")
-    steps = [
-        ("Передвинуть пятно 1", "Перетащить маркер на карте потолка в (2,2; 2,0) м — карта обновляется на лету"),
-        ("Изменить интенсивность", "A: 60 → 85 °C. После отпускания SOR пересчитывает поле за доли секунды"),
-        ("Опустить срез", "Горизонтальный срез 2,3 → 1,6 м: он движется и в 3D, и на карте"),
-        ("Сравнить поле", "Волны исчезли, пятно осталось; профиль под пятном — на той же шкале"),
-    ]
-    for i, (head, body) in enumerate(steps):
-        y = 1.55 + i * 1.33
-        badge(s, M, y, str(i + 1))
-        text(s, M + 0.75, y - 0.02, 4.6, 0.4, head, size=19, bold=True)
-        text(s, M + 0.75, y + 0.42, 4.6, 0.8, body, size=15, color=INK_2, spacing=1.1)
-    text(s, 6.15, 1.42, 3.2, 0.3, "До", size=14, bold=True, color=MUTED)
-    text(s, 9.5, 1.42, 3.2, 0.3, "После", size=14, bold=True, color=HEAT)
-    framed(s, FIG / "ceiling-map.png", 6.15, 1.75, 3.2, 2.5, pad=0.06)
-    framed(s, FIG / "demo-ceiling-map.png", 9.5, 1.75, 3.2, 2.5, pad=0.06)
-    framed(s, FIG / "hslice.png", 6.15, 4.4, 3.2, 2.5, pad=0.06)
-    framed(s, FIG / "demo-hslice.png", 9.5, 4.4, 3.2, 2.5, pad=0.06)
-    notes(s, "Перед показом нажать «Сбросить». Порядок: пятно, интенсивность, срез, сравнение профиля.")
+    title(s, "Живой показ: сдвиг пятна, A = 85 °C, срез на 1,6 м")
+    text(s, M, 1.3, 3.6, 0.7, [[("До: ", {"bold": True, "color": INK}),
+                                ("A = 60 °C, пятно 1 в (1,32; 1,65) м, z = 2,3 м", {})]],
+         size=15, color=INK_2)
+    text(s, 4.35, 1.3, 4.2, 0.7, [[("После: ", {"bold": True, "color": HEAT}),
+                                   ("A = 85 °C, пятно 1 в (2,2; 2,0) м, z = 1,6 м", {})]],
+         size=15, color=INK_2)
+    picture(s, maps["before-ceiling"], M, 2.05, 3.6, 2.45)
+    picture(s, maps["after-ceiling"], 4.35, 2.05, 4.2, 2.45)
+    picture(s, maps["before-hslice"], M, 4.55, 3.6, 2.45)
+    picture(s, maps["after-hslice"], 4.35, 4.55, 4.2, 2.45)
+    card(s, 8.85, 1.3, 3.88, 5.7)
+    text(s, 9.05, 1.42, 3.5, 0.9, f"Профиль под ({fmt(xp, 1)}; {fmt(yp, 1)}) м", size=17, bold=True)
+    picture(s, img_profile, 8.95, 1.9, 3.7, 4.55)
+    text(s, 9.05, 6.45, 3.5, 0.5, f"z = 1,6 м: {fmt(t_slice, 1)} °C; потолок {fmt(t_top, 1)} °C",
+         size=15, color=INK_2)
+    notes(s, "Перед показом нажать «Сбросить». 1) Перетащить маркер пятна 1 на карте потолка в (2,2; 2,0) м. "
+             "2) Ползунок A: 60 → 85 °C, шкала всех видов станет 16–90 °C. 3) Горизонтальный срез: 2,3 → 1,6 м. "
+             f"4) Щёлкнуть по центру маркера пятна 1: профиль под (2,2; 2,0) м, на высоте 1,6 м — "
+             f"{fmt(t_slice, 1)} °C. Все карты на слайде — на одной шкале 16–90 °C.")
 
-    # 9. Выводы
+    # 9. Результаты
     s = prs.slides.add_slide(blank)
     background(s, DARK)
-    text(s, M, 0.55, W - 2 * M, 0.9, "Выводы", size=36, bold=True, color=WHITE, name="Title")
-    points = [
-        ("Рисунок сглаживается с глубиной",
-         f"Узор m = n = 2 теряет 90 % амплитуды за {fmt(wave['depth_10'], 2)} м, узкое пятно — за "
-         f"{fmt(spot2['depth_10'], 2)} м, широкое — за {fmt(spot1['depth_10'], 2)} м. Ниже середины комнаты "
-         "поле почти не зависит от деталей потолка."),
-        ("Теория совпадает с расчётом",
-         "Гармоника потолка затухает как exp(−kd): чем мельче деталь, тем больше k и тем ближе к потолку она гаснет."),
-        ("SOR — метод для интерактива",
-         f"{sor['iterations']} итераций против {jac['iterations']} у Якоби и {sei['iterations']} у Зейделя; "
-         "с прошлым полем как начальным приближением пересчёт занимает доли секунды."),
-        ("Решение проверено",
-         f"Границы выполнены точно, ошибка относительно ряда Фурье убывает со вторым порядком ({fmt(order, 2)})."),
+    title(s, "Результаты", color=WHITE, size=34)
+    results = [
+        (f"{fmt(100 * spot1['fraction_at_depth']['1.0'], 0)} %",
+         f"амплитуды пятна 1 остаётся на глубине 1 м; у пятна 2 — "
+         f"{fmt(100 * spot2['fraction_at_depth']['1.0'], 0)} %, у осциллирующей части волн — "
+         f"{fmt(100 * wave['fraction_at_depth']['1.0'], 0)} %. Измерено для добавки T(A) − T(A = 0), "
+         "сетка 80 × 60 × 52."),
+        (f"{sor['iterations']}",
+         f"итераций SOR (ω = {fmt(sor['omega'], 3)}) до невязки 10⁻⁸ против {jac['iterations']} у Якоби и "
+         f"{sei['iterations']} у Зейделя; сетка 40 × 30 × 26, старт 20 °C."),
+        (f"{fmt(inc[-1]['order'], 2)}",
+         f"порядок сходимости по сетке: ошибка добавки относительно ряда Фурье "
+         f"{fmt(inc[0]['max_error'], 3)} → {fmt(inc[1]['max_error'], 3)} → {fmt(inc[2]['max_error'], 3)} °C "
+         "при h = 0,2 → 0,1 → 0,05 м."),
     ]
-    for i, (head, body) in enumerate(points):
-        x = M + (i % 2) * 6.2
-        y = 1.75 + (i // 2) * 2.55
-        card(s, x, y, 5.9, 2.3, color=RGBColor(0x43, 0x25, 0x30))
-        badge(s, x + 0.3, y + 0.3, str(i + 1), d=0.5, size=18)
-        text(s, x + 1.0, y + 0.3, 4.7, 0.5, head, size=20, bold=True, color=WHITE)
-        text(s, x + 1.0, y + 0.85, 4.65, 1.4, body, size=15, color=RGBColor(0xE8, 0xDF, 0xD6), spacing=1.15)
-    notes(s, "Ответ на вопрос доклада: с глубиной остаются только крупные черты нагрева.")
+    for i, (big, body) in enumerate(results):
+        y = 1.75 + i * 1.75
+        text(s, M, y, 2.6, 1.3, big, size=44, bold=True, color=RGBColor(0xF6, 0xA3, 0x52),
+             anchor=MSO_ANCHOR.MIDDLE)
+        text(s, 3.4, y, 9.3, 1.3, body, size=19, color=LIGHT_ON_DARK, anchor=MSO_ANCHOR.MIDDLE)
+    notes(s, "Мелкие детали нагрева гаснут у самого потолка, крупные проникают глубже; в метре под потолком "
+             "поле определяют в основном стены.")
 
     OUT.mkdir(exist_ok=True)
     path = OUT / "PDE-Solver.pptx"
     prs.save(path)
     print("Сохранено:", path.relative_to(HERE))
+    return path
+
+
+# --- Экспорт PDF ------------------------------------------------------------
+
+def export_pdf(pptx):
+    """PDF рядом с PPTX: LibreOffice, иначе PowerPoint (Windows — pywin32, macOS — AppleScript)."""
+    pdf = pptx.with_suffix(".pdf")
+    soffice = (shutil.which("soffice") or shutil.which("libreoffice")
+               or next((p for p in [r"C:\Program Files\LibreOffice\program\soffice.exe",
+                                    "/Applications/LibreOffice.app/Contents/MacOS/soffice"]
+                        if Path(p).exists()), None))
+    if soffice:
+        subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", str(pptx.parent), str(pptx)],
+                       check=True, timeout=300)
+        return pdf
+    if sys.platform == "win32":
+        try:
+            import win32com.client
+        except ImportError:
+            win32com = None
+        if win32com:
+            app = win32com.client.Dispatch("PowerPoint.Application")
+            deck = app.Presentations.Open(str(pptx.resolve()), WithWindow=False)
+            deck.SaveAs(str(pdf.resolve()), 32)   # 32 — ppSaveAsPDF
+            deck.Close()
+            app.Quit()
+            return pdf
+    if sys.platform == "darwin" and Path("/Applications/Microsoft PowerPoint.app").exists():
+        # PowerPoint на macOS работает в песочнице: файл кладём в его контейнер.
+        box = Path.home() / "Library/Containers/com.microsoft.Powerpoint/Data/Documents/pde-solver-export"
+        box.mkdir(parents=True, exist_ok=True)
+        src, dst = box / pptx.name, box / pdf.name
+        shutil.copy(pptx, src)
+        dst.unlink(missing_ok=True)
+        script = (f'tell application "Microsoft PowerPoint"\n open POSIX file "{src}"\n delay 3\n'
+                  f' save active presentation in POSIX file "{dst}" as save as PDF\n delay 2\n'
+                  f' close active presentation saving no\nend tell')
+        subprocess.run(["osascript", "-e", script], check=True, timeout=300)
+        shutil.copy(dst, pdf)
+        shutil.rmtree(box, ignore_errors=True)
+        return pdf
+    print("PDF не создан: нет LibreOffice и PowerPoint. Откройте PPTX и сохраните как PDF вручную.")
+    return None
 
 
 if __name__ == "__main__":
-    build()
+    pptx = build()
+    pdf = export_pdf(pptx)
+    if pdf:
+        print("Сохранено:", pdf.relative_to(HERE))

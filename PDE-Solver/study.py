@@ -217,8 +217,9 @@ def depth_decay(grid):
         top = np.abs(theta[1:-1, 1:-1, -1]).max()
         values = (np.abs(theta[1:-1, 1:-1, :]).max(axis=(0, 1)) / top)[::-1]
         curves.append((name, values))
+        at = {f"{d:.1f}": float(values[int(np.argmin(np.abs(depths - d)))]) for d in (0.5, 1.0, 1.5)}
         summary[name] = {"ceiling_amplitude": float(top), "half": crossing(depths, values, 0.5),
-                         "tenth": crossing(depths, values, 0.1)}
+                         "tenth": crossing(depths, values, 0.1), "fraction_at_depth": at}
         print(f"  {name}: амплитуда на потолке {top:.2f} °C, 50 % — {summary[name]['half']['depth']:.2f} м, "
               f"10 % — {summary[name]['tenth']['depth']:.2f} м (между слоями {summary[name]['tenth']['between']})")
     k_wave = 2 * pi * sqrt((c.m / LX) ** 2 + (c.n / LY) ** 2)

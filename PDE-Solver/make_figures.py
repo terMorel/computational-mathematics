@@ -89,7 +89,7 @@ def scheme_figure(params, scale):
         note(0, LY / 2, LZ * 0.62, f"x = 0: {fmt(WALLS.x0, 0)} °C"),
         note(LX * 0.62, LY, LZ * 0.42, f"y = 3 м: {fmt(WALLS.y1, 0)} °C"),
         note(LX, LY / 2, LZ * 0.45, f"x = 4 м: {fmt(WALLS.x1, 0)} °C"),
-        note(LX * 0.6, 0, LZ * 0.25, f"y = 0: {fmt(WALLS.y0, 0)} °C"),
+        note(LX * 0.74, 0, 0.12, f"y = 0: {fmt(WALLS.y0, 0)} °C"),
         note(LX * 0.55, LY * 0.6, 0.0, f"пол: {fmt(WALLS.floor, 0)} °C"),
         note(LX / 2, LY / 2, LZ + 0.35, "потолок: формула, на краю 20 °C"),
         note(0, 0, LZ * 0.4, f"ребро x = y = 0:<br>({fmt(WALLS.x0, 0)} + {fmt(WALLS.y0, 0)}) / 2 = "
