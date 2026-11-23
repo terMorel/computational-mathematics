@@ -460,9 +460,8 @@ def footers(prs):
 # --- Слайды -----------------------------------------------------------------
 
 def timing_conditions(timing):
-    machine = ", ".join(v for v in [timing["system"], timing["machine"], timing.get("cpu")] if v)
-    return (f"Время — медиана {timing['repeats']} запусков на одном компьютере: {machine}; "
-            f"Python {timing['python']}, numpy {timing['numpy']}.")
+    where = f" ({timing['cpu']})" if timing.get("cpu") else ""
+    return f"Время — медиана {timing['repeats']} запусков на одном компьютере{where}."
 
 
 def build(path):
@@ -530,7 +529,9 @@ def build(path):
                    r"\left(0{,}12 + 0{,}65\,G_1 + 0{,}30\,G_2 + 0{,}15\,R\right)$",
         "gauss": r"$G_j = \exp\left(-\dfrac{1}{2}\left[\left(\dfrac{u - u_j}{\sigma_{xj}}\right)^2"
                  r" + \left(\dfrac{v - v_j}{\sigma_{yj}}\right)^2\right]\right)$",
-        "wave": r"$R = \dfrac{1}{2}\,(1 + \sin 2\pi m u\;\cos 2\pi n v)$",
+        "wave": r"$R = \dfrac{1}{2}\,(1 + \sin 2\pi m u\;\cos 2\pi n v),\qquad m = n = %d$" % DEFAULT_PARAMS["m"],
+        "uv": r"$u = x / L_x,\qquad v = y / L_y,\qquad A = %s\,^{\circ}\mathrm{C}$" % amp,
+        "cap": r"$\sin^2(\pi u)\,\sin^2(\pi v)$",
         # схема
         "taylor": r"$T(x \pm h) = T \pm h\,T' + \dfrac{h^2}{2}\,T'' \pm \dfrac{h^3}{6}\,T''' + \dfrac{h^4}{24}\,T^{(4)}"
                   r" + \ldots$",
@@ -594,7 +595,7 @@ def build(path):
     notes(s, "Тема работы — стационарное распределение температуры в комнате. Стены и пол держат постоянную "
              "температуру, потолок нагрет неравномерно. Справа — то, что получилось в итоге: горизонтальный срез "
              "рассчитанного поля в 30 сантиметрах под потолком. Расскажу, откуда берётся уравнение, как оно "
-             "заменяется разностной схемой, почему итерационные методы сходятся с разной скоростью, как "
+             "заменяется разностной схемой, от чего зависит скорость итерационных методов, как "
              "проверялась точность и что показал расчёт.")
 
     # 2. Уравнение Лапласа и задача Дирихле
@@ -627,15 +628,17 @@ def build(path):
     picture(s, img_ceiling, M + 0.1, 2.5, 5.8, 4.3)
     X = 6.95
     RW = W - M - X
-    text(s, X, 2.4, RW, 1.25, ["**Фон 20 °C** — как у пола; сверху добавляется нагрев A = 60 °C.",
-                               "**Колпак sin²πu · sin²πv** гасит нагрев к краю: потолок непрерывно "
-                               "переходит в 20 °C. Здесь u = x / L_{x}, v = y / L_{y}."],
-         size=15, color=INK_2, after=4)
-    same_scale(s, [(F["gauss"], X, 3.72, RW, 0.66), (F["wave"], X, 4.78, RW, 0.55)])
-    text(s, X, 4.4, RW, 0.32, "**G₁, G₂** — два гауссовых пятна, крупный масштаб.", size=15, color=INK_2)
-    text(s, X, 5.36, RW, 0.32, "**R** — волновой узор m = n = 2, мелкий масштаб.", size=15, color=INK_2)
-    text(s, X, 5.85, RW, 1.05, "Разные масштабы взяты специально: по ним видно, как быстро крупные "
-                              "и мелкие детали нагрева гаснут вглубь комнаты.", size=15, color=INK_2)
+    # Справа — обозначения формулы: формула (TeX), под ней пояснение словами.
+    same_scale(s, [(F["uv"], X, 2.4, RW, 0.4), (F["cap"], X, 3.22, RW, 0.46),
+                   (F["gauss"], X, 4.34, RW, 0.64), (F["wave"], X, 5.38, RW, 0.5)])
+    for y, h, caption in ((2.84, 0.28, "Координаты на потолке от 0 до 1 и сила нагрева."),
+                          (3.72, 0.52, "«Колпак»: обнуляет нагрев на краю, и потолок непрерывно переходит "
+                                       "в фон 20 °C, как у пола."),
+                          (5.0, 0.28, "Два гауссовых пятна — крупный масштаб."),
+                          (5.9, 0.28, "Волновой узор — мелкий масштаб.")):
+        text(s, X, y, RW, h, caption, size=15, color=INK_2)
+    text(s, X, 6.3, RW, 0.6, "Разные масштабы взяты специально: видно, как быстро крупные и мелкие "
+                             "детали гаснут вглубь.", size=14, color=INK_2)
     x1, y1 = DEFAULT_PARAMS["spots"][0][:2]
     x2, y2 = DEFAULT_PARAMS["spots"][1][:2]
     sx1, sy1 = DEFAULT_CEILING.spots[0].sx, DEFAULT_CEILING.spots[0].sy
@@ -754,7 +757,7 @@ def build(path):
     picture(s, img_tau, 7.05, TOP + 0.1, W - M - 7.15, 4.55)
     text(s, 6.95, 6.32, W - M - 6.95, 0.6, "Точки — расчёт с порогом 10⁻⁸, пунктир — оценка N(ε) с ρ(τ). "
                                            "Минимум — у τ_{opt}, правее оценка почти точна.", size=13, color=INK_2)
-    notes(s, "Почему методы сходятся с разной скоростью. Ошибка на каждой итерации умножается на матрицу "
+    notes(s, "Скорость сходимости определяет спектральный радиус. Ошибка на каждой итерации умножается на матрицу "
              "перехода, поэтому после i шагов она уменьшается примерно как спектральный радиус в степени i. "
              "Отсюда число итераций — логарифм требуемой точности, делённый на логарифм обратного радиуса. "
              "Радиус метода Якоби выражается через наименьшее собственное число оператора, у Зейделя он равен "
@@ -824,12 +827,12 @@ def build(path):
     RW = W - M - X
     text(s, X, TOP, RW, 0.3, f"Одно поле, A = {amp} °C, общая шкала {num(scale[0], 0)}–{num(scale[1], 0)} °C",
          size=14, color=INK_2)
-    text(s, X, 1.95, RW, 0.4, "Почему поле сглаживается", size=18, bold=True)
-    text(s, X, 2.45, RW, 2.6, ["В каждом узле температура — среднее соседей: пики потолка расплываются, "
-                               "новых экстремумов внутри нет.",
-                               "Мелкие детали гаснут ближе к потолку: вклад гармоники с волновым числом k "
-                               "убывает как e^{−kd}.",
-                               "Ниже метра поле задают в основном стены: холодная x = 0 и тёплая x = 4 м."],
+    text(s, X, 2.0, RW, 3.1, ["**Поле сглаживается с глубиной**, потому что температура в каждом узле — "
+                              "среднее соседей: пики потолка расплываются, а новых экстремумов внутри "
+                              "не возникает.",
+                              "Мелкие детали гаснут быстрее крупных: вклад гармоники с волновым числом k "
+                              "убывает как e^{−kd}.",
+                              "Ниже метра поле задают в основном стены: холодная x = 0 и тёплая x = 4 м."],
          size=15, color=INK_2, after=8)
     takeaway(s, X, 5.35, RW, 1.55, f"Максимум внутри слоя: **{num(top['interior_max'], 2)} °C** на глубине 0,1 м, "
                                     f"**{num(deep['interior_max'], 2)} °C** на 1,3 м. На глубине 1 м нагрев "
@@ -950,13 +953,16 @@ def export_pdf(pptx, pdf):
         # PowerPoint на macOS работает в песочнице: файлы кладём в его контейнер.
         box = Path.home() / "Library/Containers/com.microsoft.Powerpoint/Data/Documents/pde-solver-export"
         box.mkdir(parents=True, exist_ok=True)
-        src, dst = box / pptx.name, box / pdf.name
+        # Копия с уникальным именем, и обращаемся к ней по имени: презентации, открытые
+        # в PowerPoint пользователем (в том числе прежний PDE-Solver.pptx), не затрагиваются.
+        tag = f"pde-export-{os.getpid()}"
+        src, dst = box / f"{tag}.pptx", box / f"{tag}.pdf"
         try:
             dst.unlink(missing_ok=True)
             shutil.copy(pptx, src)
             script = (f'tell application "Microsoft PowerPoint"\n open POSIX file "{src}"\n delay 3\n'
-                      f' save active presentation in POSIX file "{dst}" as save as PDF\n delay 2\n'
-                      f' close active presentation saving no\nend tell')
+                      f' save presentation "{src.name}" in POSIX file "{dst}" as save as PDF\n delay 2\n'
+                      f' close presentation "{src.name}" saving no\nend tell')
             subprocess.run(["osascript", "-e", script], check=True, timeout=300)
             shutil.copy(dst, pdf)
         finally:
